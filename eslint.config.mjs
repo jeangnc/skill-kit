@@ -21,6 +21,7 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/array-type": ["error", { default: "array-simple", readonly: "array-simple" }],
       "no-console": "off",
       eqeqeq: ["error", "always", { null: "ignore" }],
       curly: ["error", "multi-line"],
@@ -31,6 +32,7 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",
       "@typescript-eslint/no-floating-promises": "off",
+      "@typescript-eslint/require-await": "off",
     },
   },
 );

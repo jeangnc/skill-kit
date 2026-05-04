@@ -19,13 +19,16 @@ const TOKEN_PATTERN = /\{\{([a-z][a-z0-9-]*)(?::([^{}\n]+?))?\}\}/g;
 export function parsePlaceholders(body: string): Placeholder[] {
   const tokens: Placeholder[] = [];
   for (const match of body.matchAll(TOKEN_PATTERN)) {
-    const start = match.index!;
+    const raw = match[0];
+    const prefix = match[1];
+    if (raw === undefined || prefix === undefined) continue;
+    const start = match.index;
     tokens.push({
-      prefix: match[1]!,
+      prefix,
       value: match[2] ?? null,
-      raw: match[0],
+      raw,
       start,
-      end: start + match[0].length,
+      end: start + raw.length,
     });
   }
   return tokens;

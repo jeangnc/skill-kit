@@ -26,35 +26,51 @@ export default defineSkill({
 # My Skill
 
 For type safety conventions, see {{skill:dev-tools:typescript}}.
+For TDD discipline, see {{external:superpowers:test-driven-development}}.
 For details, see {{companion:details.md}}.
 
 {{companions}}
 ```
 
-## Compiling
+## Building
+
+The package ships a `skill-kit` CLI bin. Add it to your `package.json`:
+
+```json
+{
+  "scripts": {
+    "build": "skill-kit"
+  },
+  "dependencies": {
+    "@jean.gnc/skill-kit": "^0.2.0"
+  }
+}
+```
+
+Defaults: reads from `./src`, writes to `./dist`. Override with `--src` and `--out`.
+
+For programmatic use:
 
 ```ts
-import { compile } from "@jean.gnc/skill-kit";
+import { build } from "@jean.gnc/skill-kit";
 
-await compile({
+await build({
   srcRoot: "./src",
   outRoot: "./dist",
   bodyInvariants: [
-    /* consumer-supplied (body) => string[] */
+    /* consumer-supplied (body) => string[] checks */
   ],
 });
 ```
 
-Local skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.ts`. Use `{{skill:...}}` for local references (validated, build fails on typos) and `{{ext:...}}` for cross-plugin references (rendered as-is, no validation).
-
-`bodyInvariants` are project-specific checks (e.g. forbidden tokens, deprecated names) that run against each skill's body. The framework calls each function and aggregates returned error strings.
-
 ## Placeholder reference
+
+Local skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.ts`. Use `{{skill:...}}` for local references (build fails on typos) and `{{external:...}}` for cross-plugin references (rendered as-is, no validation).
 
 | Placeholder | Renders to | Validation |
 | --- | --- | --- |
 | `{{skill:<plugin>:<name>}}` | `` `<plugin>:<name>` `` | Must be a discovered local skill |
-| `{{ext:<id>}}` | `` `<id>` `` | None — opaque external reference |
+| `{{external:<id>}}` | `` `<id>` `` | None — opaque external reference |
 | `{{companion:<file>.md}}` | `` `<file>.md` `` | Must be a declared companion |
 | `{{companions}}` | Companion files section | Required iff companions are declared |
 

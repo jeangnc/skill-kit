@@ -29,6 +29,9 @@
       "import": "./dist/index.js"
     }
   },
+  "bin": {
+    "skill-kit": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "README.md",

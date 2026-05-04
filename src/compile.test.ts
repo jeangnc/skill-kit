@@ -203,11 +203,11 @@ test("compile fails when {{skill:...}} references an id that is not a local skil
   );
 });
 
-test("compile renders {{ext:...}} as a backticked id without checking it exists", async () => {
+test("compile renders {{external:...}} as a backticked id without checking it exists", async () => {
   await withSkillFixture(
     {
       skillSource: SKILL_TS_BARE,
-      bodyMd: "see {{ext:superpowers:test-driven-development}} for TDD",
+      bodyMd: "see {{external:superpowers:test-driven-development}} for TDD",
     },
     async (srcRoot, distRoot) => {
       await compile({ srcRoot, outRoot: distRoot });

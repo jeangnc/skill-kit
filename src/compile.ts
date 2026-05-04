@@ -155,8 +155,8 @@ function buildRegistry(
       }
       return { ok: true, rendered: `\`${value}\`` };
     },
-    ext: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{ext:<id>}}`" };
+    external: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{external:<id>}}`" };
       return { ok: true, rendered: `\`${value}\`` };
     },
     companion: (value) => {

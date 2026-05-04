@@ -1,12 +1,18 @@
-# skill-kit
+# @jeangnc/skill-kit
 
 Typed framework for authoring Claude Code skills. Skills are declared as a tiny TypeScript metadata file plus a sibling `body.md` written in plain Markdown. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects.
 
-## Usage
+## Install
+
+```sh
+pnpm add @jeangnc/skill-kit
+```
+
+## Authoring a skill
 
 ```ts
 // SKILL.ts
-import { defineSkill } from "skill-kit";
+import { defineSkill } from "@jeangnc/skill-kit";
 
 export default defineSkill({
   name: "my-skill",
@@ -28,15 +34,19 @@ For details, see {{companion:details.md}}.
 ## Compiling
 
 ```ts
-import { compile } from "skill-kit";
+import { compile } from "@jeangnc/skill-kit";
 
 await compile({
   srcRoot: "./src",
   outRoot: "./dist",
   validSkillIds: ["dev-tools:typescript", "my-plugin:my-skill"],
-  bodyInvariants: [/* consumer-supplied (body) => string[] */],
+  bodyInvariants: [
+    /* consumer-supplied (body) => string[] */
+  ],
 });
 ```
+
+`bodyInvariants` are project-specific checks (e.g. forbidden tokens, deprecated names) that run against each skill's body. The framework calls each function and aggregates returned error strings.
 
 ## Placeholder reference
 
@@ -45,3 +55,7 @@ await compile({
 | `{{skill:<plugin>:<name>}}` | `` `<plugin>:<name>` `` | Must appear in `validSkillIds` |
 | `{{companion:<file>.md}}` | `` `<file>.md` `` | Must be a declared companion |
 | `{{companions}}` | Companion files section | Required iff companions are declared |
+
+## License
+
+MIT

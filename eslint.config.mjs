@@ -20,8 +20,22 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/consistent-type-imports": "error",
+      "@typescript-eslint/consistent-type-definitions": ["error", "interface"],
       "@typescript-eslint/no-non-null-assertion": "warn",
-      "@typescript-eslint/array-type": ["error", { default: "array-simple", readonly: "array-simple" }],
+      "@typescript-eslint/array-type": [
+        "error",
+        { default: "array-simple", readonly: "array-simple" },
+      ],
+      "@typescript-eslint/switch-exhaustiveness-check": "error",
+      "@typescript-eslint/no-unnecessary-condition": "error",
+      "@typescript-eslint/no-shadow": "error",
+      "no-shadow": "off",
+      "@typescript-eslint/explicit-module-boundary-types": "error",
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true, allowBoolean: true, allowNullish: true },
+      ],
+      "@typescript-eslint/method-signature-style": ["error", "property"],
       "no-console": "off",
       eqeqeq: ["error", "always", { null: "ignore" }],
       curly: ["error", "multi-line"],
@@ -33,6 +47,8 @@ export default tseslint.config(
       "@typescript-eslint/no-non-null-assertion": "off",
       "@typescript-eslint/no-floating-promises": "off",
       "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/explicit-module-boundary-types": "off",
+      "@typescript-eslint/no-unnecessary-condition": "off",
     },
   },
 );

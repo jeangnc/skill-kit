@@ -21,7 +21,7 @@ export function parsePlaceholders(body: string): Placeholder[] {
   for (const match of body.matchAll(TOKEN_PATTERN)) {
     const raw = match[0];
     const prefix = match[1];
-    if (raw === undefined || prefix === undefined) continue;
+    if (prefix === undefined) continue;
     const start = match.index;
     tokens.push({
       prefix,

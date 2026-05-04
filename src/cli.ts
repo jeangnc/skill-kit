@@ -67,47 +67,51 @@ function printHelp(): void {
 
 const { sub, rest } = readSubcommand(process.argv.slice(2));
 
-if (sub === "help") {
-  printHelp();
-  process.exit(0);
-}
-
-if (sub === "build") {
-  const { values } = parseArgs({
-    args: [...rest],
-    options: {
-      src: { type: "string", default: "./src" },
-      out: { type: "string", default: "./dist" },
-      silent: { type: "boolean", default: false },
-      help: { type: "boolean", short: "h", default: false },
-    },
-    strict: true,
-  });
-  if (values.help) {
+switch (sub) {
+  case "help":
     printHelp();
     process.exit(0);
+  case "build": {
+    const { values } = parseArgs({
+      args: [...rest],
+      options: {
+        src: { type: "string", default: "./src" },
+        out: { type: "string", default: "./dist" },
+        silent: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+      },
+      strict: true,
+    });
+    if (values.help) {
+      printHelp();
+      process.exit(0);
+    }
+    await build({ srcRoot: values.src, outRoot: values.out, silent: values.silent });
+    break;
   }
-  await build({ srcRoot: values.src, outRoot: values.out, silent: values.silent });
-} else if (sub === "install" || sub === "uninstall") {
-  const { values } = parseArgs({
-    args: [...rest],
-    options: {
-      dist: { type: "string", default: "./dist" },
-      targets: { type: "string" },
-      silent: { type: "boolean", default: false },
-      help: { type: "boolean", short: "h", default: false },
-    },
-    strict: true,
-  });
-  if (values.help) {
-    printHelp();
-    process.exit(0);
+  case "install":
+  case "uninstall": {
+    const { values } = parseArgs({
+      args: [...rest],
+      options: {
+        dist: { type: "string", default: "./dist" },
+        targets: { type: "string" },
+        silent: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+      },
+      strict: true,
+    });
+    if (values.help) {
+      printHelp();
+      process.exit(0);
+    }
+    const targets = parseTargets(values.targets);
+    const fn = sub === "install" ? install : uninstall;
+    await fn({
+      distRoot: values.dist,
+      silent: values.silent,
+      ...(targets !== undefined ? { targets } : {}),
+    });
+    break;
   }
-  const targets = parseTargets(values.targets);
-  const fn = sub === "install" ? install : uninstall;
-  await fn({
-    distRoot: values.dist,
-    silent: values.silent,
-    ...(targets !== undefined ? { targets } : {}),
-  });
 }

@@ -4,6 +4,8 @@ import { readFile, readdir, mkdir, rm, cp } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { z } from "zod";
+
 const execFileAsync = promisify(execFile);
 
 export type Target = "claude" | "codex";
@@ -20,20 +22,22 @@ export interface InstallOptions {
   readonly runCommand?: CommandRunner;
 }
 
-interface PluginManifest {
-  readonly name: string;
-  readonly version: string;
-}
+const PluginManifestSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().min(1),
+});
+
+type PluginManifest = z.infer<typeof PluginManifestSchema>;
+
+const MarketplaceManifestSchema = z.object({
+  name: z.string().min(1),
+});
 
 interface DiscoveredPlugin {
   readonly name: string;
   readonly path: string;
   readonly claudeManifest: PluginManifest | null;
   readonly codexManifest: PluginManifest | null;
-}
-
-interface MarketplaceManifest {
-  readonly name: string;
 }
 
 interface InstallContext {
@@ -83,8 +87,14 @@ async function defaultRunner(cmd: string, args: readonly string[]): Promise<void
 async function readMarketplaceName(distRoot: string): Promise<string> {
   const manifestPath = join(distRoot, ".claude-plugin/marketplace.json");
   const raw = await readFile(manifestPath, "utf8");
-  const parsed = JSON.parse(raw) as MarketplaceManifest;
-  return parsed.name;
+  const parsed = MarketplaceManifestSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("; ");
+    throw new Error(`invalid marketplace manifest at ${manifestPath}: ${issues}`);
+  }
+  return parsed.data.name;
 }
 
 async function discoverPlugins(distRoot: string): Promise<readonly DiscoveredPlugin[]> {
@@ -103,12 +113,20 @@ async function discoverPlugins(distRoot: string): Promise<readonly DiscoveredPlu
 }
 
 async function tryReadManifest(path: string): Promise<PluginManifest | null> {
+  let raw: string;
   try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as PluginManifest;
+    raw = await readFile(path, "utf8");
   } catch {
     return null;
   }
+  const parsed = PluginManifestSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("; ");
+    throw new Error(`invalid plugin manifest at ${path}: ${issues}`);
+  }
+  return parsed.data;
 }
 
 async function installClaude(ctx: InstallContext): Promise<void> {

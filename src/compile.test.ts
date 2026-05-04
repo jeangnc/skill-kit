@@ -285,6 +285,21 @@ test("compile fails on unknown placeholder prefix", async () => {
   );
 });
 
+test("compile rejects a default export that violates SkillSchema (e.g. defineSkill is bypassed)", async () => {
+  const SKILL_TS_BYPASSES_DEFINE_SKILL = `import type { Skill } from "#skill-kit";
+export default { name: "bar", description: "line one\\nline two" } as Skill;
+`;
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BYPASSES_DEFINE_SKILL,
+      bodyMd: "# Bar\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /description/i);
+    },
+  );
+});
+
 test("compile runs consumer-supplied bodyInvariants", async () => {
   const callsForbidden = (body: string): string[] =>
     body.includes("FORBIDDEN") ? [`body contains forbidden token`] : [];

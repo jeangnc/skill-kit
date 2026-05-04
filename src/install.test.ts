@@ -309,6 +309,56 @@ test("uninstall removes the codex marketplace cache and registration", async () 
   );
 });
 
+test("install rejects a marketplace.json missing the required `name` field", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "skill-kit-install-"));
+  const distRoot = join(sandbox, "dist");
+  const claudeHome = join(sandbox, "claude");
+  const codexHome = join(sandbox, "codex");
+  mkdirSync(join(distRoot, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(distRoot, ".claude-plugin/marketplace.json"), JSON.stringify({}));
+  mkdirSync(join(distRoot, "plugins"), { recursive: true });
+  try {
+    const recorder = recordingRunner();
+    await assert.rejects(
+      install({ distRoot, claudeHome, codexHome, silent: true, runCommand: recorder.run }),
+      /name/i,
+    );
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("install rejects a plugin.json missing the required `version` field", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "skill-kit-install-"));
+  const distRoot = join(sandbox, "dist");
+  const claudeHome = join(sandbox, "claude");
+  const codexHome = join(sandbox, "codex");
+  mkdirSync(join(distRoot, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(distRoot, ".claude-plugin/marketplace.json"),
+    JSON.stringify({ name: "shop" }),
+  );
+  const pluginPath = join(distRoot, "plugins/alpha");
+  mkdirSync(join(pluginPath, ".codex-plugin"), { recursive: true });
+  writeFileSync(join(pluginPath, ".codex-plugin/plugin.json"), JSON.stringify({ name: "alpha" }));
+  try {
+    const recorder = recordingRunner();
+    await assert.rejects(
+      install({
+        distRoot,
+        claudeHome,
+        codexHome,
+        targets: ["codex"],
+        silent: true,
+        runCommand: recorder.run,
+      }),
+      /version/i,
+    );
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("install ignores plugin folders without any plugin manifest", async () => {
   await withInstallFixture(
     {

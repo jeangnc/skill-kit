@@ -2,9 +2,9 @@ import { mkdir, readdir, readFile, copyFile, writeFile, stat } from "node:fs/pro
 import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { Companion, Skill } from "./skill.js";
+import { SkillSchema, type Companion, type Skill } from "./skill.js";
 import { checkCompanionFiles } from "./invariants.js";
-import { substitute, type ValidatorRegistry } from "./placeholders.js";
+import { parsePlaceholders, substitute, type ValidatorRegistry } from "./placeholders.js";
 
 export type BodyInvariant = (body: string) => string[];
 
@@ -15,7 +15,7 @@ export interface CompileOptions {
 }
 
 const ALLOWED_TOP_LEVEL = ["plugins", ".claude-plugin"] as const;
-const COMPANIONS_TOKEN = "{{companions}}";
+const COMPANIONS_PREFIX = "companions";
 
 export async function compile(options: CompileOptions): Promise<void> {
   const { srcRoot, outRoot } = options;
@@ -103,8 +103,13 @@ async function emitSkill(
   localSkillIds: ReadonlySet<string>,
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
-  const mod = (await import(pathToFileURL(srcPath).href)) as { default: Skill };
-  const skill = mod.default;
+  const mod = (await import(pathToFileURL(srcPath).href)) as { default: unknown };
+  const parsed = SkillSchema.safeParse(mod.default);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
+    throw new Error(`invariant violations in ${srcPath}:\n  - ${issues.join("\n  - ")}`);
+  }
+  const skill: Skill = parsed.data;
   const expectedName = basename(dirname(srcPath));
 
   const bodyPath = join(dirname(srcPath), "body.md");
@@ -166,7 +171,7 @@ function buildRegistry(
       }
       return { ok: true, rendered: `\`${value}\`` };
     },
-    companions: () => {
+    [COMPANIONS_PREFIX]: () => {
       if (!companions?.length) {
         return { ok: false, error: "no companions are declared on this skill" };
       }
@@ -184,10 +189,13 @@ function checkCompanionsTokenParity(
   body: string,
   companions: readonly Companion[] | undefined,
 ): string[] {
-  const hasToken = body.includes(COMPANIONS_TOKEN);
   const hasCompanions = (companions?.length ?? 0) > 0;
-  if (hasCompanions && !hasToken) {
-    return [`companions declared but body is missing the ${COMPANIONS_TOKEN} placeholder`];
+  if (!hasCompanions) return [];
+  const hasToken = parsePlaceholders(body).some(
+    (t) => t.prefix === COMPANIONS_PREFIX && t.value === null,
+  );
+  if (!hasToken) {
+    return [`companions declared but body is missing the {{${COMPANIONS_PREFIX}}} placeholder`];
   }
   return [];
 }

@@ -2,9 +2,10 @@ import { mkdir, readdir, readFile, copyFile, writeFile, stat } from "node:fs/pro
 import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { SkillSchema, type Companion, type Skill } from "./skill.js";
+import { RESERVED_COMPANION_FILENAMES, SkillSchema, type Companion, type Skill } from "./skill.js";
 import { checkCompanionFiles } from "./invariants.js";
 import { parsePlaceholders, substitute, type ValidatorRegistry } from "./placeholders.js";
+import { formatZodIssues } from "./zod.js";
 
 export type BodyInvariant = (body: string) => string[];
 
@@ -14,7 +15,7 @@ export interface CompileOptions {
   readonly bodyInvariants?: readonly BodyInvariant[];
 }
 
-const ALLOWED_TOP_LEVEL = ["plugins", ".claude-plugin"] as const;
+export const ALLOWED_TOP_LEVEL = ["plugins", ".claude-plugin"] as const;
 const COMPANIONS_PREFIX = "companions";
 
 export async function compile(options: CompileOptions): Promise<void> {
@@ -23,9 +24,13 @@ export async function compile(options: CompileOptions): Promise<void> {
   for (const sub of ALLOWED_TOP_LEVEL) {
     const subPath = join(srcRoot, sub);
     if (await pathExists(subPath)) {
-      await mirror(subPath, join(outRoot, sub), localSkillIds, options.bodyInvariants ?? []);
+      await compileTree(subPath, join(outRoot, sub), localSkillIds, options.bodyInvariants ?? []);
     }
   }
+}
+
+function throwInvariantViolations(srcPath: string, errors: readonly string[]): never {
+  throw new Error(`invariant violations in ${srcPath}:\n  - ${errors.join("\n  - ")}`);
 }
 
 async function discoverLocalSkillIds(srcRoot: string): Promise<ReadonlySet<string>> {
@@ -48,7 +53,7 @@ async function discoverLocalSkillIds(srcRoot: string): Promise<ReadonlySet<strin
   return ids;
 }
 
-async function mirror(
+async function compileTree(
   srcRoot: string,
   outRoot: string,
   localSkillIds: ReadonlySet<string>,
@@ -87,7 +92,7 @@ async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[
     const file = basename(absPath);
     if (file === "SKILL.ts") {
       result.set(dir, result.get(dir) ?? []);
-    } else if (file.endsWith(".md") && file !== "SKILL.md" && file !== "body.md") {
+    } else if (file.endsWith(".md") && !RESERVED_COMPANION_FILENAMES.has(file)) {
       const list = result.get(dir) ?? [];
       list.push(file);
       result.set(dir, list);
@@ -106,8 +111,7 @@ async function emitSkill(
   const mod = (await import(pathToFileURL(srcPath).href)) as { default: unknown };
   const parsed = SkillSchema.safeParse(mod.default);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
-    throw new Error(`invariant violations in ${srcPath}:\n  - ${issues.join("\n  - ")}`);
+    throwInvariantViolations(srcPath, formatZodIssues(parsed.error));
   }
   const skill: Skill = parsed.data;
   const expectedName = basename(dirname(srcPath));
@@ -117,9 +121,7 @@ async function emitSkill(
   try {
     body = await readFile(bodyPath, "utf8");
   } catch {
-    throw new Error(
-      `invariant violations in ${srcPath}:\n  - missing sibling body.md at ${bodyPath}`,
-    );
+    throwInvariantViolations(srcPath, [`missing sibling body.md at ${bodyPath}`]);
   }
 
   const errors: string[] = [];
@@ -133,13 +135,13 @@ async function emitSkill(
   errors.push(...checkCompanionsTokenParity(body, skill.companions));
 
   if (errors.length > 0) {
-    throw new Error(`invariant violations in ${srcPath}:\n  - ${errors.join("\n  - ")}`);
+    throwInvariantViolations(srcPath, errors);
   }
 
   const registry = buildRegistry(skill.companions, localSkillIds);
   const result = substitute(body, registry);
   if (!result.ok) {
-    throw new Error(`invariant violations in ${srcPath}:\n  - ${result.errors.join("\n  - ")}`);
+    throwInvariantViolations(srcPath, result.errors);
   }
 
   const frontmatter = `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\n`;

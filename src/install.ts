@@ -1,10 +1,12 @@
 import { homedir } from "node:os";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { readFile, readdir, mkdir, rm, cp } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { z } from "zod";
+
+import { formatZodIssues } from "./zod.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -89,10 +91,9 @@ async function readMarketplaceName(distRoot: string): Promise<string> {
   const raw = await readFile(manifestPath, "utf8");
   const parsed = MarketplaceManifestSchema.safeParse(JSON.parse(raw));
   if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-      .join("; ");
-    throw new Error(`invalid marketplace manifest at ${manifestPath}: ${issues}`);
+    throw new Error(
+      `invalid marketplace manifest at ${manifestPath}: ${formatZodIssues(parsed.error).join("; ")}`,
+    );
   }
   return parsed.data.name;
 }
@@ -121,10 +122,9 @@ async function tryReadManifest(path: string): Promise<PluginManifest | null> {
   }
   const parsed = PluginManifestSchema.safeParse(JSON.parse(raw));
   if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-      .join("; ");
-    throw new Error(`invalid plugin manifest at ${path}: ${issues}`);
+    throw new Error(
+      `invalid plugin manifest at ${path}: ${formatZodIssues(parsed.error).join("; ")}`,
+    );
   }
   return parsed.data;
 }
@@ -171,7 +171,7 @@ async function installCodex(ctx: InstallContext): Promise<void> {
       plugin.name,
       plugin.codexManifest.version,
     );
-    await mkdir(join(dest, ".."), { recursive: true });
+    await mkdir(dirname(dest), { recursive: true });
     await cp(plugin.path, dest, { recursive: true });
     ctx.log(`[codex] cached ${plugin.name}@${plugin.codexManifest.version}`);
   }

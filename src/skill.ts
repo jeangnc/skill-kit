@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const RESERVED_COMPANION_FILENAMES = new Set(["body.md", "SKILL.md"]);
+export const RESERVED_COMPANION_FILENAMES: ReadonlySet<string> = new Set(["body.md", "SKILL.md"]);
 
 export const CompanionSchema = z.object({
   file: z

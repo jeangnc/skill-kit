@@ -22,18 +22,22 @@ function readSubcommand(argv: readonly string[]): { sub: Subcommand; rest: reado
 }
 
 function isSubcommand(value: string): value is Subcommand {
-  return (SUBCOMMANDS as readonly string[]).includes(value);
+  return SUBCOMMANDS.some((s) => s === value);
+}
+
+function isTarget(value: string): value is Target {
+  return value === "claude" || value === "codex";
 }
 
 function parseTargets(value: string | undefined): readonly Target[] | undefined {
   if (!value) return undefined;
-  const parts = value.split(",").map((p) => p.trim());
-  for (const part of parts) {
-    if (part !== "claude" && part !== "codex") {
-      throw new Error(`Unknown target "${part}". Valid: claude, codex`);
+  return value.split(",").map((p) => {
+    const trimmed = p.trim();
+    if (!isTarget(trimmed)) {
+      throw new Error(`Unknown target "${trimmed}". Valid: claude, codex`);
     }
-  }
-  return parts as readonly Target[];
+    return trimmed;
+  });
 }
 
 function printHelp(): void {

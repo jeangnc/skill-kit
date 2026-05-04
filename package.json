@@ -48,21 +48,13 @@
     "format": "prettier --write 'src/**/*.ts'",
     "test": "tsx --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "prepare": "simple-git-hooks",
+    "prepare": "husky",
     "prepublishOnly": "pnpm lint && pnpm test && pnpm build"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged"
   },
   "lint-staged": {
     "src/**/*.ts": [
       "prettier --write",
       "eslint --fix"
-    ]
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "simple-git-hooks"
     ]
   },
   "dependencies": {
@@ -73,9 +65,9 @@
     "@types/node": "^22.10.0",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.4.0",
-    "simple-git-hooks": "^2.13.1",
     "tsx": "^4.20.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.20.0"

@@ -1,0 +1,5 @@
+{
+  "name": "test-marketplace",
+  "metadata": { "pluginRoot": "./plugins", "version": "0.0.1" },
+  "plugins": [{ "name": "foo", "source": "./plugins/foo" }]
+}

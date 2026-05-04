@@ -1,0 +1,3 @@
+# Companion A
+
+Stub.

@@ -34,25 +34,37 @@ For details, see {{companion:details.md}}.
 
 ## Building
 
-The package ships a `skill-kit` CLI bin. Add it to your `package.json`:
+The package ships a `skill-kit` CLI bin with three subcommands:
+
+```sh
+skill-kit build      # compile typed sources to dist/ (default)
+skill-kit install    # install dist/ plugins into Claude + Codex
+skill-kit uninstall  # remove them
+```
+
+In your `package.json`:
 
 ```json
 {
   "scripts": {
-    "build": "skill-kit"
+    "build": "skill-kit build",
+    "install:plugins": "skill-kit install",
+    "uninstall:plugins": "skill-kit uninstall"
   },
   "dependencies": {
-    "@jean.gnc/skill-kit": "^0.2.0"
+    "@jean.gnc/skill-kit": "^0.3.0"
   }
 }
 ```
 
-Defaults: reads from `./src`, writes to `./dist`. Override with `--src` and `--out`.
+`build` defaults: `./src` → `./dist`. Override with `--src` and `--out`.
+
+`install` / `uninstall` defaults: reads `./dist`, targets both Claude and Codex. Filter with `--targets claude` or `--targets codex`. The marketplace name is read from `./dist/.claude-plugin/marketplace.json`.
 
 For programmatic use:
 
 ```ts
-import { build } from "@jean.gnc/skill-kit";
+import { build, install, uninstall } from "@jean.gnc/skill-kit";
 
 await build({
   srcRoot: "./src",
@@ -61,6 +73,8 @@ await build({
     /* consumer-supplied (body) => string[] checks */
   ],
 });
+
+await install({ targets: ["claude", "codex"] });
 ```
 
 ## Placeholder reference

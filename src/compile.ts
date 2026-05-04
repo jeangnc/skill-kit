@@ -11,7 +11,6 @@ export type BodyInvariant = (body: string) => string[];
 export interface CompileOptions {
   readonly srcRoot: string;
   readonly outRoot: string;
-  readonly validSkillIds: readonly string[];
   readonly bodyInvariants?: readonly BodyInvariant[];
 }
 
@@ -20,19 +19,39 @@ const COMPANIONS_TOKEN = "{{companions}}";
 
 export async function compile(options: CompileOptions): Promise<void> {
   const { srcRoot, outRoot } = options;
-  const skillIdSet = new Set(options.validSkillIds);
+  const localSkillIds = await discoverLocalSkillIds(srcRoot);
   for (const sub of ALLOWED_TOP_LEVEL) {
     const subPath = join(srcRoot, sub);
     if (await pathExists(subPath)) {
-      await mirror(subPath, join(outRoot, sub), skillIdSet, options.bodyInvariants ?? []);
+      await mirror(subPath, join(outRoot, sub), localSkillIds, options.bodyInvariants ?? []);
     }
   }
+}
+
+async function discoverLocalSkillIds(srcRoot: string): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>();
+  const pluginsRoot = join(srcRoot, "plugins");
+  if (!(await pathExists(pluginsRoot))) return ids;
+  const plugins = await readdir(pluginsRoot, { withFileTypes: true });
+  for (const plugin of plugins) {
+    if (!plugin.isDirectory()) continue;
+    const skillsDir = join(pluginsRoot, plugin.name, "skills");
+    if (!(await pathExists(skillsDir))) continue;
+    const skills = await readdir(skillsDir, { withFileTypes: true });
+    for (const skill of skills) {
+      if (!skill.isDirectory()) continue;
+      if (await pathExists(join(skillsDir, skill.name, "SKILL.ts"))) {
+        ids.add(`${plugin.name}:${skill.name}`);
+      }
+    }
+  }
+  return ids;
 }
 
 async function mirror(
   srcRoot: string,
   outRoot: string,
-  skillIdSet: ReadonlySet<string>,
+  localSkillIds: ReadonlySet<string>,
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
   const skillFolders = await collectSkillFolders(srcRoot);
@@ -47,7 +66,7 @@ async function mirror(
         absPath,
         join(dirname(target), "SKILL.md"),
         companions,
-        skillIdSet,
+        localSkillIds,
         bodyInvariants,
       );
       continue;
@@ -81,7 +100,7 @@ async function emitSkill(
   srcPath: string,
   outPath: string,
   siblings: readonly string[],
-  skillIdSet: ReadonlySet<string>,
+  localSkillIds: ReadonlySet<string>,
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
   const mod = (await import(pathToFileURL(srcPath).href)) as { default: Skill };
@@ -112,7 +131,7 @@ async function emitSkill(
     throw new Error(`invariant violations in ${srcPath}:\n  - ${errors.join("\n  - ")}`);
   }
 
-  const registry = buildRegistry(skill.companions, skillIdSet);
+  const registry = buildRegistry(skill.companions, localSkillIds);
   const result = substitute(body, registry);
   if (!result.ok) {
     throw new Error(`invariant violations in ${srcPath}:\n  - ${result.errors.join("\n  - ")}`);
@@ -125,13 +144,19 @@ async function emitSkill(
 
 function buildRegistry(
   companions: readonly Companion[] | undefined,
-  skillIdSet: ReadonlySet<string>,
+  localSkillIds: ReadonlySet<string>,
 ): ValidatorRegistry {
   const declaredCompanions = new Set((companions ?? []).map((c) => c.file));
   return {
     skill: (value) => {
       if (value === null) return { ok: false, error: "expected `{{skill:<plugin>:<name>}}`" };
-      if (!skillIdSet.has(value)) return { ok: false, error: `unknown skill id "${value}"` };
+      if (!localSkillIds.has(value)) {
+        return { ok: false, error: `unknown skill id "${value}" — not a local skill` };
+      }
+      return { ok: true, rendered: `\`${value}\`` };
+    },
+    ext: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{ext:<id>}}`" };
       return { ok: true, rendered: `\`${value}\`` };
     },
     companion: (value) => {

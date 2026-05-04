@@ -11,8 +11,6 @@ const fixturesRoot = fileURLToPath(new URL("./fixtures", import.meta.url));
 const goodRoot = join(fixturesRoot, "good");
 const companionRenderRoot = join(fixturesRoot, "companionRender");
 
-const VALID_SKILL_IDS = ["dev-tools:ruby", "dev-tools:typescript", "foo:bar"] as const;
-
 function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
   const dist = mkdtempSync(join(tmpdir(), "skill-kit-test-"));
   return fn(dist).finally(() => rmSync(dist, { recursive: true, force: true }));
@@ -47,6 +45,16 @@ function withSkillFixture<T>(
   });
 }
 
+function makeStubSkill(srcRoot: string, plugin: string, name: string): void {
+  const dir = join(srcRoot, "plugins", plugin, "skills", name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "SKILL.ts"),
+    `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "${name}", description: "stub" });\n`,
+  );
+  writeFileSync(join(dir, "body.md"), `# ${name}\n`);
+}
+
 const SKILL_TS_BARE = `import { defineSkill } from "#skill-kit";
 export default defineSkill({ name: "bar", description: "fixture skill" });
 `;
@@ -61,7 +69,7 @@ export default defineSkill({
 
 test("compile emits SKILL.md with frontmatter and body for a typed skill source", async () => {
   await withTempDist(async (dist) => {
-    await compile({ srcRoot: goodRoot, outRoot: dist, validSkillIds: VALID_SKILL_IDS });
+    await compile({ srcRoot: goodRoot, outRoot: dist });
 
     const skillPath = join(dist, "plugins/foo/skills/bar/SKILL.md");
     assert.ok(existsSync(skillPath), `expected ${skillPath} to exist`);
@@ -76,7 +84,7 @@ test("compile emits SKILL.md with frontmatter and body for a typed skill source"
 
 test("compile copies non-skill plugin files verbatim", async () => {
   await withTempDist(async (dist) => {
-    await compile({ srcRoot: goodRoot, outRoot: dist, validSkillIds: VALID_SKILL_IDS });
+    await compile({ srcRoot: goodRoot, outRoot: dist });
 
     const manifestPath = join(dist, "plugins/foo/.claude-plugin/plugin.json");
     assert.ok(existsSync(manifestPath), `expected ${manifestPath} to exist`);
@@ -89,7 +97,7 @@ test("compile copies non-skill plugin files verbatim", async () => {
 
 test("compile does not write SKILL.ts source files into dist", async () => {
   await withTempDist(async (dist) => {
-    await compile({ srcRoot: goodRoot, outRoot: dist, validSkillIds: VALID_SKILL_IDS });
+    await compile({ srcRoot: goodRoot, outRoot: dist });
 
     const tsPath = join(dist, "plugins/foo/skills/bar/SKILL.ts");
     assert.ok(!existsSync(tsPath), `did not expect ${tsPath} to exist`);
@@ -98,7 +106,7 @@ test("compile does not write SKILL.ts source files into dist", async () => {
 
 test("compile copies .claude-plugin/marketplace.json verbatim into dist root", async () => {
   await withTempDist(async (dist) => {
-    await compile({ srcRoot: goodRoot, outRoot: dist, validSkillIds: VALID_SKILL_IDS });
+    await compile({ srcRoot: goodRoot, outRoot: dist });
 
     const distManifest = join(dist, ".claude-plugin/marketplace.json");
     assert.ok(existsSync(distManifest), `expected ${distManifest} to exist`);
@@ -110,7 +118,7 @@ test("compile copies .claude-plugin/marketplace.json verbatim into dist root", a
 
 test("compile ignores top-level files outside plugins/ and .claude-plugin/", async () => {
   await withTempDist(async (dist) => {
-    await compile({ srcRoot: goodRoot, outRoot: dist, validSkillIds: VALID_SKILL_IDS });
+    await compile({ srcRoot: goodRoot, outRoot: dist });
 
     const stray = join(dist, "README.md");
     assert.ok(!existsSync(stray), `did not expect ${stray} to exist`);
@@ -119,11 +127,7 @@ test("compile ignores top-level files outside plugins/ and .claude-plugin/", asy
 
 test("compile renders typed companions into the {{companions}} placeholder", async () => {
   await withTempDist(async (dist) => {
-    await compile({
-      srcRoot: companionRenderRoot,
-      outRoot: dist,
-      validSkillIds: VALID_SKILL_IDS,
-    });
+    await compile({ srcRoot: companionRenderRoot, outRoot: dist });
 
     const skillPath = join(dist, "plugins/foo/skills/bar/SKILL.md");
     const content = readFileSync(skillPath, "utf8");
@@ -148,7 +152,7 @@ test("compile reads body from sibling body.md", async () => {
       bodyMd: "# Bar from body.md\n\nReal body content.\n",
     },
     async (srcRoot, distRoot) => {
-      await compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS });
+      await compile({ srcRoot, outRoot: distRoot });
       const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
       assert.match(out, /# Bar from body\.md\n\nReal body content\./);
     },
@@ -157,10 +161,7 @@ test("compile reads body from sibling body.md", async () => {
 
 test("compile fails when body.md is missing", async () => {
   await withSkillFixture({ skillSource: SKILL_TS_BARE }, async (srcRoot, distRoot) => {
-    await assert.rejects(
-      compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS }),
-      /body\.md/,
-    );
+    await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /body\.md/);
   });
 });
 
@@ -168,38 +169,50 @@ test("compile does not copy body.md into dist", async () => {
   await withSkillFixture(
     { skillSource: SKILL_TS_BARE, bodyMd: "# Bar\n" },
     async (srcRoot, distRoot) => {
-      await compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS });
+      await compile({ srcRoot, outRoot: distRoot });
       const stray = join(distRoot, "plugins/foo/skills/bar/body.md");
       assert.ok(!existsSync(stray), `did not expect ${stray} to exist`);
     },
   );
 });
 
-test("compile substitutes {{skill:...}} with a backticked skill id", async () => {
+test("compile substitutes {{skill:...}} for a discovered local skill", async () => {
   await withSkillFixture(
     {
       skillSource: SKILL_TS_BARE,
       bodyMd: "see {{skill:dev-tools:ruby}} for ruby idioms",
     },
     async (srcRoot, distRoot) => {
-      await compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS });
+      makeStubSkill(srcRoot, "dev-tools", "ruby");
+      await compile({ srcRoot, outRoot: distRoot });
       const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
       assert.match(out, /see `dev-tools:ruby` for ruby idioms/);
     },
   );
 });
 
-test("compile fails when {{skill:...}} references an id outside validSkillIds", async () => {
+test("compile fails when {{skill:...}} references an id that is not a local skill", async () => {
   await withSkillFixture(
     {
       skillSource: SKILL_TS_BARE,
       bodyMd: "see {{skill:dev-tools:nonexistent}}",
     },
     async (srcRoot, distRoot) => {
-      await assert.rejects(
-        compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS }),
-        /dev-tools:nonexistent/,
-      );
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /dev-tools:nonexistent/);
+    },
+  );
+});
+
+test("compile renders {{ext:...}} as a backticked id without checking it exists", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "see {{ext:superpowers:test-driven-development}} for TDD",
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /see `superpowers:test-driven-development` for TDD/);
     },
   );
 });
@@ -212,7 +225,7 @@ test("compile substitutes {{companion:...}} for a declared companion file", asyn
       companionFiles: { "a.md": "# A\n" },
     },
     async (srcRoot, distRoot) => {
-      await compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS });
+      await compile({ srcRoot, outRoot: distRoot });
       const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
       assert.match(out, /details in `a\.md`/);
     },
@@ -227,10 +240,7 @@ test("compile fails when {{companion:...}} references an undeclared file", async
       companionFiles: { "a.md": "# A\n" },
     },
     async (srcRoot, distRoot) => {
-      await assert.rejects(
-        compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS }),
-        /ghost\.md/,
-      );
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /ghost\.md/);
     },
   );
 });
@@ -243,10 +253,7 @@ test("compile fails when companions are declared but {{companions}} token is abs
       companionFiles: { "a.md": "# A\n" },
     },
     async (srcRoot, distRoot) => {
-      await assert.rejects(
-        compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS }),
-        /\{\{companions\}\}/,
-      );
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /\{\{companions\}\}/);
     },
   );
 });
@@ -258,10 +265,7 @@ test("compile fails when {{companions}} is present but no companions are declare
       bodyMd: "# Bar\n\n{{companions}}\n",
     },
     async (srcRoot, distRoot) => {
-      await assert.rejects(
-        compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS }),
-        /no companions are declared/,
-      );
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /no companions are declared/);
     },
   );
 });
@@ -274,7 +278,7 @@ test("compile fails on unknown placeholder prefix", async () => {
     },
     async (srcRoot, distRoot) => {
       await assert.rejects(
-        compile({ srcRoot, outRoot: distRoot, validSkillIds: VALID_SKILL_IDS }),
+        compile({ srcRoot, outRoot: distRoot }),
         /unknown placeholder prefix "nope"/,
       );
     },
@@ -294,7 +298,6 @@ test("compile runs consumer-supplied bodyInvariants", async () => {
         compile({
           srcRoot,
           outRoot: distRoot,
-          validSkillIds: VALID_SKILL_IDS,
           bodyInvariants: [callsForbidden],
         }),
         /forbidden token/,

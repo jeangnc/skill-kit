@@ -39,12 +39,13 @@ import { compile } from "@jean.gnc/skill-kit";
 await compile({
   srcRoot: "./src",
   outRoot: "./dist",
-  validSkillIds: ["dev-tools:typescript", "my-plugin:my-skill"],
   bodyInvariants: [
     /* consumer-supplied (body) => string[] */
   ],
 });
 ```
+
+Local skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.ts`. Use `{{skill:...}}` for local references (validated, build fails on typos) and `{{ext:...}}` for cross-plugin references (rendered as-is, no validation).
 
 `bodyInvariants` are project-specific checks (e.g. forbidden tokens, deprecated names) that run against each skill's body. The framework calls each function and aggregates returned error strings.
 
@@ -52,7 +53,8 @@ await compile({
 
 | Placeholder | Renders to | Validation |
 | --- | --- | --- |
-| `{{skill:<plugin>:<name>}}` | `` `<plugin>:<name>` `` | Must appear in `validSkillIds` |
+| `{{skill:<plugin>:<name>}}` | `` `<plugin>:<name>` `` | Must be a discovered local skill |
+| `{{ext:<id>}}` | `` `<id>` `` | None — opaque external reference |
 | `{{companion:<file>.md}}` | `` `<file>.md` `` | Must be a declared companion |
 | `{{companions}}` | Companion files section | Required iff companions are declared |
 

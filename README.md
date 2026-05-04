@@ -1,18 +1,18 @@
-# @jeangnc/skill-kit
+# @jean.gnc/skill-kit
 
 Typed framework for authoring Claude Code skills. Skills are declared as a tiny TypeScript metadata file plus a sibling `body.md` written in plain Markdown. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects.
 
 ## Install
 
 ```sh
-pnpm add @jeangnc/skill-kit
+pnpm add @jean.gnc/skill-kit
 ```
 
 ## Authoring a skill
 
 ```ts
 // SKILL.ts
-import { defineSkill } from "@jeangnc/skill-kit";
+import { defineSkill } from "@jean.gnc/skill-kit";
 
 export default defineSkill({
   name: "my-skill",
@@ -34,7 +34,7 @@ For details, see {{companion:details.md}}.
 ## Compiling
 
 ```ts
-import { compile } from "@jeangnc/skill-kit";
+import { compile } from "@jean.gnc/skill-kit";
 
 await compile({
   srcRoot: "./src",

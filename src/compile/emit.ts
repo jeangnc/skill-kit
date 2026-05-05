@@ -1,59 +1,49 @@
-import { mkdir, readdir, readFile, copyFile, writeFile, stat } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
-import { pathToFileURL } from "node:url";
+import { mkdir, readdir, copyFile, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
-import { RESERVED_COMPANION_FILENAMES, SkillSchema, type Companion, type Skill } from "./skill.js";
-import { checkCompanionFiles } from "./invariants.js";
-import { parsePlaceholders, substitute, type ValidatorRegistry } from "./placeholders.js";
-import { formatZodIssues } from "./zod.js";
+import { dump } from "js-yaml";
+
+import { RESERVED_COMPANION_FILENAMES, type Companion, type Skill } from "../skill.js";
+import { type Plugin } from "../plugin.js";
+import { checkCompanionFiles } from "../invariants.js";
+import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders.js";
+import { loadSkill } from "../skill-source.js";
+
+import { pathExists, throwInvariantViolations } from "./discovery.js";
+
+const COMPANIONS_PREFIX = "companions";
+const SKILL_SOURCE_FILENAMES: ReadonlySet<string> = new Set(["SKILL.ts", "SKILL.md"]);
+const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
 export type BodyInvariant = (body: string) => string[];
 
-export interface CompileOptions {
-  readonly srcRoot: string;
-  readonly outRoot: string;
-  readonly bodyInvariants?: readonly BodyInvariant[];
-}
-
-export const ALLOWED_TOP_LEVEL = ["plugins", ".claude-plugin"] as const;
-const COMPANIONS_PREFIX = "companions";
-
-export async function compile(options: CompileOptions): Promise<void> {
-  const { srcRoot, outRoot } = options;
-  const localSkillIds = await discoverLocalSkillIds(srcRoot);
-  for (const sub of ALLOWED_TOP_LEVEL) {
-    const subPath = join(srcRoot, sub);
-    if (await pathExists(subPath)) {
-      await compileTree(subPath, join(outRoot, sub), localSkillIds, options.bodyInvariants ?? []);
-    }
+export async function emitPluginManifests(
+  plugins: ReadonlyMap<string, Plugin>,
+  outRoot: string,
+): Promise<void> {
+  for (const [name, plugin] of plugins) {
+    const outManifest = join(outRoot, "plugins", name, ".claude-plugin/plugin.json");
+    await mkdir(dirname(outManifest), { recursive: true });
+    await writeFile(outManifest, JSON.stringify(toLegacyPluginJson(plugin), null, 2) + "\n");
   }
 }
 
-function throwInvariantViolations(srcPath: string, errors: readonly string[]): never {
-  throw new Error(`invariant violations in ${srcPath}:\n  - ${errors.join("\n  - ")}`);
+function toLegacyPluginJson(plugin: Plugin): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: plugin.name,
+    version: plugin.version,
+    description: plugin.description,
+  };
+  if (plugin.author) out.author = plugin.author;
+  if (plugin.homepage) out.homepage = plugin.homepage;
+  if (plugin.repository) out.repository = plugin.repository;
+  if (plugin.license) out.license = plugin.license;
+  if (plugin.keywords) out.keywords = plugin.keywords;
+  if (plugin.dependencies) out.dependencies = plugin.dependencies;
+  return out;
 }
 
-async function discoverLocalSkillIds(srcRoot: string): Promise<ReadonlySet<string>> {
-  const ids = new Set<string>();
-  const pluginsRoot = join(srcRoot, "plugins");
-  if (!(await pathExists(pluginsRoot))) return ids;
-  const plugins = await readdir(pluginsRoot, { withFileTypes: true });
-  for (const plugin of plugins) {
-    if (!plugin.isDirectory()) continue;
-    const skillsDir = join(pluginsRoot, plugin.name, "skills");
-    if (!(await pathExists(skillsDir))) continue;
-    const skills = await readdir(skillsDir, { withFileTypes: true });
-    for (const skill of skills) {
-      if (!skill.isDirectory()) continue;
-      if (await pathExists(join(skillsDir, skill.name, "SKILL.ts"))) {
-        ids.add(`${plugin.name}:${skill.name}`);
-      }
-    }
-  }
-  return ids;
-}
-
-async function compileTree(
+export async function compileTree(
   srcRoot: string,
   outRoot: string,
   localSkillIds: ReadonlySet<string>,
@@ -64,8 +54,9 @@ async function compileTree(
   for await (const absPath of walk(srcRoot)) {
     const rel = relative(srcRoot, absPath);
     const target = join(outRoot, rel);
+    const file = basename(absPath);
 
-    if (basename(absPath) === "SKILL.ts") {
+    if (SKILL_SOURCE_FILENAMES.has(file)) {
       const companions = skillFolders.get(dirname(absPath)) ?? [];
       await emitSkill(
         absPath,
@@ -78,7 +69,7 @@ async function compileTree(
     }
 
     if (absPath.endsWith(".ts")) continue;
-    if (basename(absPath) === "body.md") continue;
+    if (file === "body.md") continue;
 
     await mkdir(dirname(target), { recursive: true });
     await copyFile(absPath, target);
@@ -90,7 +81,7 @@ async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[
   for await (const absPath of walk(srcRoot)) {
     const dir = dirname(absPath);
     const file = basename(absPath);
-    if (file === "SKILL.ts") {
+    if (SKILL_SOURCE_FILENAMES.has(file)) {
       result.set(dir, result.get(dir) ?? []);
     } else if (file.endsWith(".md") && !RESERVED_COMPANION_FILENAMES.has(file)) {
       const list = result.get(dir) ?? [];
@@ -108,21 +99,9 @@ async function emitSkill(
   localSkillIds: ReadonlySet<string>,
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
-  const mod = (await import(pathToFileURL(srcPath).href)) as { default: unknown };
-  const parsed = SkillSchema.safeParse(mod.default);
-  if (!parsed.success) {
-    throwInvariantViolations(srcPath, formatZodIssues(parsed.error));
-  }
-  const skill: Skill = parsed.data;
-  const expectedName = basename(dirname(srcPath));
-
-  const bodyPath = join(dirname(srcPath), "body.md");
-  let body: string;
-  try {
-    body = await readFile(bodyPath, "utf8");
-  } catch {
-    throwInvariantViolations(srcPath, [`missing sibling body.md at ${bodyPath}`]);
-  }
+  const skillDir = dirname(srcPath);
+  const { skill, body } = await loadSkill(skillDir);
+  const expectedName = basename(skillDir);
 
   const errors: string[] = [];
   if (skill.name !== expectedName) {
@@ -138,22 +117,51 @@ async function emitSkill(
     throwInvariantViolations(srcPath, errors);
   }
 
-  const registry = buildRegistry(skill.companions, localSkillIds);
+  const existingRefs = await precomputeExistingRefs(body, skillDir);
+  const registry = buildRegistry(skill.companions, localSkillIds, existingRefs, skillDir);
   const result = substitute(body, registry);
   if (!result.ok) {
     throwInvariantViolations(srcPath, result.errors);
   }
 
-  const frontmatter = `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\n`;
   await mkdir(dirname(outPath), { recursive: true });
-  await writeFile(outPath, frontmatter + result.rendered);
+  await writeFile(outPath, renderFrontmatter(skill) + result.rendered);
+}
+
+function renderFrontmatter(skill: Skill): string {
+  const lines = [`name: ${skill.name}`, `description: ${skill.description}`];
+  if (skill.companions?.length) {
+    lines.push(dump({ companions: skill.companions }).trimEnd());
+  }
+  return `---\n${lines.join("\n")}\n---\n\n`;
+}
+
+async function precomputeExistingRefs(
+  body: string,
+  skillDir: string,
+): Promise<ReadonlySet<string>> {
+  const refs = new Set<string>();
+  const checks: Array<Promise<void>> = [];
+  for (const token of parsePlaceholders(body)) {
+    if (token.prefix === "ref" && token.value !== null) {
+      const value = token.value;
+      checks.push(
+        pathExists(resolve(skillDir, value)).then((exists) => {
+          if (exists) refs.add(value);
+        }),
+      );
+    }
+  }
+  await Promise.all(checks);
+  return refs;
 }
 
 function buildRegistry(
   companions: readonly Companion[] | undefined,
   localSkillIds: ReadonlySet<string>,
+  existingRefs: ReadonlySet<string>,
+  skillDir: string,
 ): ValidatorRegistry {
-  const declaredCompanions = new Set((companions ?? []).map((c) => c.file));
   return {
     skill: (value) => {
       if (value === null) return { ok: false, error: "expected `{{skill:<plugin>:<name>}}`" };
@@ -162,14 +170,17 @@ function buildRegistry(
       }
       return { ok: true, rendered: `\`${value}\`` };
     },
-    external: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{external:<id>}}`" };
+    ext: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{ext:<plugin>:<skill>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return { ok: false, error: `ext id "${value}" must match <plugin>:<skill> (kebab-case)` };
+      }
       return { ok: true, rendered: `\`${value}\`` };
     },
-    companion: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{companion:<file>.md}}`" };
-      if (!declaredCompanions.has(value)) {
-        return { ok: false, error: `companion "${value}" is not declared in companions` };
+    ref: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{ref:<relative-path>}}`" };
+      if (!existingRefs.has(value)) {
+        return { ok: false, error: `ref "${value}" not found relative to skill at ${skillDir}` };
       }
       return { ok: true, rendered: `\`${value}\`` };
     },
@@ -184,7 +195,9 @@ function buildRegistry(
 
 function renderCompanions(companions: readonly Companion[]): string {
   const bullets = companions.map((c) => `- \`${c.file}\` — ${c.summary}`).join("\n");
-  return `## Companion files (read on demand)\n\n${bullets}`;
+  return `## Companion files (read on demand)
+
+${bullets}`;
 }
 
 function checkCompanionsTokenParity(
@@ -208,14 +221,5 @@ async function* walk(dir: string): AsyncGenerator<string> {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) yield* walk(full);
     else if (entry.isFile()) yield full;
-  }
-}
-
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
   }
 }

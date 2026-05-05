@@ -1,8 +1,15 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { defineCommand, runMain } from "citty";
 
 import { build } from "./build.js";
-import { install, uninstall, type Target } from "./install.js";
+import { check, type ExtViolation } from "./check.js";
+import { install, uninstall, type Target } from "./install/index.js";
+
+const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
+const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
 
 function isTarget(value: string): value is Target {
   return value === "claude" || value === "codex";
@@ -67,13 +74,52 @@ const uninstallCmd = defineCommand({
   },
 });
 
+const checkCmd = defineCommand({
+  meta: {
+    name: "check",
+    description: "Validate ext: references against installed Claude/Codex plugins",
+  },
+  args: {
+    src: { type: "string", default: "./src", description: "source root" },
+    silent: { type: "boolean", default: false, description: "suppress non-error output" },
+  },
+  run: async ({ args }) => {
+    const result = await check({ srcRoot: args.src });
+    if (!args.silent) {
+      const breakdown = result.indexedSources.map((s) => `${s.source}=${s.skillCount}`).join(", ");
+      const total = result.indexedSources.reduce((acc, s) => acc + s.skillCount, 0);
+      console.log(
+        `indexed ${total} skills across ${result.indexedSources.length} sources (${breakdown})`,
+      );
+      console.log(`checked ${result.checkedFiles} source files`);
+      if (result.violations.length > 0) console.log("");
+    }
+    for (const v of result.violations) {
+      console.log(formatViolation(v));
+    }
+    if (result.violations.length > 0) {
+      if (!args.silent) {
+        console.log("");
+        console.log(`${result.violations.length} violations`);
+      }
+      process.exit(1);
+    }
+  },
+});
+
+function formatViolation(v: ExtViolation): string {
+  return `${v.file}:${v.line}:${v.column}  \`${v.token}\` — ${v.message}`;
+}
+
 const main = defineCommand({
   meta: {
     name: "skill-kit",
+    version: pkg.version,
     description: "Typed framework for authoring Claude Code skills.",
   },
   subCommands: {
     build: buildCmd,
+    check: checkCmd,
     install: installCmd,
     uninstall: uninstallCmd,
   },

@@ -18,24 +18,26 @@ export const CompanionSchema = z.object({
 
 export type Companion = z.infer<typeof CompanionSchema>;
 
-export const SkillSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .regex(/^[a-z0-9-]+$/, "name must be lowercase kebab-case"),
-  description: z
-    .string()
-    .min(1)
-    .max(1024)
-    .refine((s) => !s.includes("\n"), "description cannot contain newlines"),
-  companions: z
-    .array(CompanionSchema)
-    .optional()
-    .refine(
-      (arr) => !arr || new Set(arr.map((c) => c.file)).size === arr.length,
-      "companion files must be unique",
-    ),
-});
+export const SkillSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .regex(/^[a-z0-9-]+$/, "name must be lowercase kebab-case"),
+    description: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine((s) => !s.includes("\n"), "description cannot contain newlines"),
+    companions: z
+      .array(CompanionSchema)
+      .optional()
+      .refine(
+        (arr) => !arr || new Set(arr.map((c) => c.file)).size === arr.length,
+        "companion files must be unique",
+      ),
+  })
+  .strict();
 
 export type Skill = z.infer<typeof SkillSchema>;
 

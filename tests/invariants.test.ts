@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { checkCompanionFiles } from "./invariants.js";
+import { checkCompanionFiles } from "../src/invariants.js";
 
 test("checkCompanionFiles flags declared companions missing on disk", () => {
   const errors = checkCompanionFiles([{ file: "ghost.md", summary: "x" }], []);

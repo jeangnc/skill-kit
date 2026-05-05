@@ -1,8 +1,8 @@
 import { rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
-import { compile } from "./compile.js";
-import type { BodyInvariant } from "./compile.js";
+import { compile } from "./compile/index.js";
+import type { BodyInvariant } from "./compile/index.js";
 
 export interface BuildOptions {
   readonly srcRoot?: string;

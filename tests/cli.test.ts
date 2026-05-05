@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
+const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
+const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
 
 function runCli(args: readonly string[]): {
   status: number | null;
@@ -35,4 +38,19 @@ test("cli uninstall --help exits 0 and mentions --dist", () => {
 test("cli with unknown subcommand exits non-zero", () => {
   const { status } = runCli(["nonsense-subcommand"]);
   assert.notEqual(status, 0);
+});
+
+test("cli --version prints the package version", () => {
+  const { status, stdout } = runCli(["--version"]);
+  assert.equal(status, 0);
+  assert.ok(
+    stdout.includes(pkg.version),
+    `expected --version stdout to include ${pkg.version}, got: ${stdout}`,
+  );
+});
+
+test("cli check --help exits 0 and mentions --src", () => {
+  const { status, stdout } = runCli(["check", "--help"]);
+  assert.equal(status, 0);
+  assert.match(stdout, /--src/);
 });

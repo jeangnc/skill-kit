@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { parsePlaceholders, substitute, type ValidatorRegistry } from "./placeholders.js";
+import { parsePlaceholders, substitute, type ValidatorRegistry } from "../src/placeholders.js";
 
 test("parsePlaceholders extracts a single prefixed placeholder", () => {
   const tokens = parsePlaceholders("see {{skill:dev-tools:ruby}} for more");
@@ -19,12 +19,12 @@ test("parsePlaceholders extracts a bare placeholder (no value)", () => {
 });
 
 test("parsePlaceholders extracts multiple placeholders in order", () => {
-  const tokens = parsePlaceholders("a {{skill:foo:bar}} b {{companion:x.md}} c {{companions}}");
+  const tokens = parsePlaceholders("a {{skill:foo:bar}} b {{ref:./x.md}} c {{companions}}");
   assert.deepEqual(
     tokens.map((t) => ({ prefix: t.prefix, value: t.value })),
     [
       { prefix: "skill", value: "foo:bar" },
-      { prefix: "companion", value: "x.md" },
+      { prefix: "ref", value: "./x.md" },
       { prefix: "companions", value: null },
     ],
   );

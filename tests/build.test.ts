@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { build } from "./build.js";
+import { build } from "../src/build.js";
 
 const fixturesRoot = fileURLToPath(new URL("./fixtures", import.meta.url));
 

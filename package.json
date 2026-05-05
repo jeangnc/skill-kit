@@ -42,28 +42,33 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "lint": "tsc --noEmit && prettier --check 'src/**/*.ts' && eslint 'src/**/*.ts'",
-    "lint:format": "prettier --check 'src/**/*.ts'",
-    "lint:code": "eslint 'src/**/*.ts'",
-    "format": "prettier --write 'src/**/*.ts'",
-    "test": "tsx --test 'src/**/*.test.ts'",
+    "dev": "tsx src/cli.ts",
+    "lint": "tsc --noEmit && prettier --check '{src,tests}/**/*.ts' && eslint '{src,tests}/**/*.ts'",
+    "lint:format": "prettier --check '{src,tests}/**/*.ts'",
+    "lint:code": "eslint '{src,tests}/**/*.ts'",
+    "format": "prettier --write '{src,tests}/**/*.ts'",
+    "test": "tsx --test 'tests/**/*.test.ts'",
+    "test:coverage": "c8 --reporter=text --reporter=lcov tsx --test 'tests/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "prepare": "husky",
     "prepublishOnly": "pnpm lint && pnpm test && pnpm build"
   },
   "lint-staged": {
-    "src/**/*.ts": [
+    "{src,tests}/**/*.ts": [
       "prettier --write",
       "eslint --fix"
     ]
   },
   "dependencies": {
     "citty": "^0.2.2",
+    "js-yaml": "^4.1.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
+    "c8": "^11.0.0",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^9.1.0",
     "husky": "^9.1.7",
@@ -78,5 +83,6 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "packageManager": "pnpm@10.27.0"
 }

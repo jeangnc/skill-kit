@@ -4,7 +4,18 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { install, uninstall } from "./install.js";
+import {
+  installWithRunner,
+  uninstallWithRunner,
+  type InstallOptions,
+} from "../src/install/index.js";
+
+type CommandRunner = (cmd: string, args: readonly string[]) => Promise<void>;
+type OldOpts = InstallOptions & { readonly runCommand: CommandRunner };
+const install = ({ runCommand, ...opts }: OldOpts): Promise<void> =>
+  installWithRunner(opts, runCommand);
+const uninstall = ({ runCommand, ...opts }: OldOpts): Promise<void> =>
+  uninstallWithRunner(opts, runCommand);
 
 interface CommandCall {
   readonly cmd: string;

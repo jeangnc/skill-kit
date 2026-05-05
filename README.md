@@ -97,7 +97,7 @@ In your `package.json`:
     "uninstall:plugins": "skill-kit uninstall"
   },
   "dependencies": {
-    "@jean.gnc/skill-kit": "^0.3.2"
+    "@jean.gnc/skill-kit": "latest"
   }
 }
 ```

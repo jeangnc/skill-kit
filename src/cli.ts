@@ -3,13 +3,16 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { defineCommand, runMain } from "citty";
+import { z } from "zod";
 
 import { build } from "./build.js";
 import { check, type ExtViolation } from "./check.js";
 import { install, uninstall, type Target } from "./install/index.js";
 
+const PackageJsonSchema = z.object({ version: z.string().min(1) });
+
 const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
-const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
+const pkg = PackageJsonSchema.parse(JSON.parse(readFileSync(pkgPath, "utf8")));
 
 function isTarget(value: string): value is Target {
   return value === "claude" || value === "codex";

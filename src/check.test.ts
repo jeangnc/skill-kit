@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { check } from "../src/check.js";
-import type { PluginSource } from "../src/sources.js";
+import { check } from "./check.js";
+import type { PluginSource } from "./installed.js";
 
-const fixturesRoot = fileURLToPath(new URL("./fixtures", import.meta.url));
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
 interface SkillFile {
   readonly plugin: string;
@@ -16,11 +16,11 @@ interface SkillFile {
   readonly body: string;
 }
 
-function withSrcFixture<T>(
+async function withSrcFixture<T>(
   files: readonly SkillFile[],
   fn: (srcRoot: string) => Promise<T>,
 ): Promise<T> {
-  const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_check_"));
+  const sandbox = mkdtempSync(join(repoRoot, ".test-tmp-check-"));
   const srcRoot = join(sandbox, "src");
   for (const file of files) {
     const skillDir = join(srcRoot, "plugins", file.plugin, "skills", file.skill);
@@ -33,7 +33,7 @@ function withSrcFixture<T>(
   return fn(srcRoot).finally(() => rmSync(sandbox, { recursive: true, force: true }));
 }
 
-function withInstalledFixture<T>(
+async function withInstalledFixture<T>(
   installed: ReadonlyArray<{ plugin: string; skill: string }>,
   fn: (sources: readonly PluginSource[]) => Promise<T>,
 ): Promise<T> {
@@ -149,7 +149,7 @@ test("check counts each scanned skill body as a checked file", async () => {
 });
 
 test("check works with TS-authored skills (body in body.md)", async () => {
-  const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_check_ts_"));
+  const sandbox = mkdtempSync(join(repoRoot, ".test-tmp-check-ts-"));
   const srcRoot = join(sandbox, "src");
   const skillDir = join(srcRoot, "plugins/foo/skills/bar");
   mkdirSync(skillDir, { recursive: true });

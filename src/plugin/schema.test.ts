@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { PluginSchema, ContextEntrySchema, definePlugin } from "../src/plugin.js";
+import { PluginSchema, ContextEntrySchema, definePlugin } from "./schema.js";
 
 test("PluginSchema rejects non-kebab-case name", () => {
   const result = PluginSchema.safeParse({

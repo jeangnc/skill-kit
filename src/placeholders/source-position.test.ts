@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { offsetToLineCol } from "../src/source-position.js";
+import { offsetToLineCol } from "./source-position.js";
 
 test("offsetToLineCol returns line 1 col 1 for offset 0", () => {
   assert.deepEqual(offsetToLineCol("hello\nworld\n", 0), { line: 1, column: 1 });

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
 const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
 

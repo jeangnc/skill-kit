@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findSkillFile, loadSkill } from "../src/skill-source.js";
+import { findSkillFile, loadSkill } from "./source.js";
 
-const fixturesRoot = fileURLToPath(new URL("./fixtures", import.meta.url));
+const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 interface SandboxOptions {
   readonly skillTs?: string;
@@ -14,11 +14,11 @@ interface SandboxOptions {
   readonly bodyMd?: string;
 }
 
-function withSkillSandbox<T>(
+async function withSkillSandbox<T>(
   options: SandboxOptions,
   fn: (skillDir: string) => Promise<T>,
 ): Promise<T> {
-  const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_skill_source_"));
+  const sandbox = mkdtempSync(join(repoRoot, ".test-tmp-skill-source-"));
   const skillDir = join(sandbox, "plugins/foo/skills/bar");
   mkdirSync(skillDir, { recursive: true });
   if (options.skillTs !== undefined) writeFileSync(join(skillDir, "SKILL.ts"), options.skillTs);
@@ -40,35 +40,42 @@ description: fixture skill
 inline body
 `;
 
-test("findSkillFile returns null when neither SKILL.ts nor SKILL.md exists", async () => {
+test("findSkillFile returns ok-null when neither SKILL.ts nor SKILL.md exists", async () => {
   await withSkillSandbox({}, async (skillDir) => {
-    assert.equal(await findSkillFile(skillDir), null);
+    const result = await findSkillFile(skillDir);
+    if (!result.ok) assert.fail(`expected ok, got error: ${JSON.stringify(result.error)}`);
+    assert.equal(result.value, null);
   });
 });
 
 test("findSkillFile returns SKILL.ts when only SKILL.ts exists", async () => {
   await withSkillSandbox({ skillTs: SKILL_TS_BARE }, async (skillDir) => {
     const result = await findSkillFile(skillDir);
-    assert.ok(result);
-    assert.equal(result.source, "ts");
-    assert.equal(result.path, join(skillDir, "SKILL.ts"));
+    if (!result.ok) assert.fail(`expected ok, got error: ${JSON.stringify(result.error)}`);
+    assert.ok(result.value);
+    assert.equal(result.value.source, "ts");
+    assert.equal(result.value.path, join(skillDir, "SKILL.ts"));
   });
 });
 
 test("findSkillFile returns SKILL.md when only SKILL.md exists", async () => {
   await withSkillSandbox({ skillMd: SKILL_MD_BARE }, async (skillDir) => {
     const result = await findSkillFile(skillDir);
-    assert.ok(result);
-    assert.equal(result.source, "md");
-    assert.equal(result.path, join(skillDir, "SKILL.md"));
+    if (!result.ok) assert.fail(`expected ok, got error: ${JSON.stringify(result.error)}`);
+    assert.ok(result.value);
+    assert.equal(result.value.source, "md");
+    assert.equal(result.value.path, join(skillDir, "SKILL.md"));
   });
 });
 
-test("findSkillFile throws when both SKILL.ts and SKILL.md exist", async () => {
+test("findSkillFile, when both SKILL.ts and SKILL.md exist, returns ambiguous-source error", async () => {
   await withSkillSandbox(
     { skillTs: SKILL_TS_BARE, skillMd: SKILL_MD_BARE, bodyMd: "# body\n" },
     async (skillDir) => {
-      await assert.rejects(findSkillFile(skillDir), /both SKILL\.ts and SKILL\.md/);
+      const result = await findSkillFile(skillDir);
+      if (result.ok) assert.fail("expected error, got ok");
+      assert.equal(result.error.tag, "ambiguous-source");
+      assert.equal(result.error.skillDir, skillDir);
     },
   );
 });
@@ -77,7 +84,9 @@ test("loadSkill returns parsed skill + body for a TS source", async () => {
   await withSkillSandbox(
     { skillTs: SKILL_TS_BARE, bodyMd: "# Bar\nbody from body.md\n" },
     async (skillDir) => {
-      const loaded = await loadSkill(skillDir);
+      const result = await loadSkill(skillDir);
+      if (!result.ok) assert.fail(`expected ok, got error: ${JSON.stringify(result.error)}`);
+      const loaded = result.value;
       assert.equal(loaded.source, "ts");
       assert.equal(loaded.skill.name, "bar");
       assert.equal(loaded.skill.description, "fixture skill");
@@ -91,7 +100,9 @@ test("loadSkill returns parsed skill + body for a TS source", async () => {
 
 test("loadSkill returns parsed skill + body for a MD source with non-zero bodyOffset", async () => {
   await withSkillSandbox({ skillMd: SKILL_MD_BARE }, async (skillDir) => {
-    const loaded = await loadSkill(skillDir);
+    const result = await loadSkill(skillDir);
+    if (!result.ok) assert.fail(`expected ok, got error: ${JSON.stringify(result.error)}`);
+    const loaded = result.value;
     assert.equal(loaded.source, "md");
     assert.equal(loaded.skill.name, "bar");
     assert.equal(loaded.skill.description, "fixture skill");
@@ -101,19 +112,23 @@ test("loadSkill returns parsed skill + body for a MD source with non-zero bodyOf
   });
 });
 
-test("loadSkill throws when MD source is accompanied by a body.md", async () => {
+test("loadSkill, when MD source is accompanied by a body.md, returns forbidden-body error", async () => {
   await withSkillSandbox({ skillMd: SKILL_MD_BARE, bodyMd: "# rogue body\n" }, async (skillDir) => {
-    await assert.rejects(loadSkill(skillDir), /body\.md.*forbidden|forbidden.*body\.md/i);
+    const result = await loadSkill(skillDir);
+    if (result.ok) assert.fail("expected error, got ok");
+    assert.equal(result.error.tag, "forbidden-body");
   });
 });
 
-test("loadSkill throws when TS source is missing body.md", async () => {
+test("loadSkill, when TS source is missing body.md, returns missing-body error", async () => {
   await withSkillSandbox({ skillTs: SKILL_TS_BARE }, async (skillDir) => {
-    await assert.rejects(loadSkill(skillDir), /body\.md/);
+    const result = await loadSkill(skillDir);
+    if (result.ok) assert.fail("expected error, got ok");
+    assert.equal(result.error.tag, "missing-body");
   });
 });
 
-test("loadSkill throws when MD frontmatter violates SkillSchema", async () => {
+test("loadSkill, when MD frontmatter violates SkillSchema, returns schema-violation error with issues", async () => {
   const badFrontmatter = `---
 name: BAR
 description: x
@@ -122,12 +137,18 @@ description: x
 body
 `;
   await withSkillSandbox({ skillMd: badFrontmatter }, async (skillDir) => {
-    await assert.rejects(loadSkill(skillDir), /name/);
+    const result = await loadSkill(skillDir);
+    if (result.ok) assert.fail("expected error, got ok");
+    assert.equal(result.error.tag, "schema-violation");
+    if (result.error.tag !== "schema-violation") return;
+    assert.ok(result.error.issues.some((i) => i.includes("name")));
   });
 });
 
-test("loadSkill throws when neither source file is present", async () => {
+test("loadSkill, when neither source file is present, returns no-source error", async () => {
   await withSkillSandbox({}, async (skillDir) => {
-    await assert.rejects(loadSkill(skillDir), /SKILL\.(ts|md)/);
+    const result = await loadSkill(skillDir);
+    if (result.ok) assert.fail("expected error, got ok");
+    assert.equal(result.error.tag, "no-source");
   });
 });

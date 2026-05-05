@@ -43,18 +43,20 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsx src/cli.ts",
-    "lint": "tsc --noEmit && prettier --check '{src,tests}/**/*.ts' && eslint '{src,tests}/**/*.ts'",
-    "lint:format": "prettier --check '{src,tests}/**/*.ts'",
-    "lint:code": "eslint '{src,tests}/**/*.ts'",
-    "format": "prettier --write '{src,tests}/**/*.ts'",
-    "test": "tsx --test 'tests/**/*.test.ts'",
-    "test:coverage": "c8 --reporter=text --reporter=lcov tsx --test 'tests/**/*.test.ts'",
+    "lint": "tsc --noEmit && prettier --check 'src/**/*.ts' && eslint 'src/**/*.ts'",
+    "lint:format": "prettier --check 'src/**/*.ts'",
+    "lint:code": "eslint 'src/**/*.ts'",
+    "format": "prettier --write 'src/**/*.ts'",
+    "test": "tsx --test 'src/**/*.test.ts'",
+    "test:coverage": "c8 --reporter=text --reporter=lcov tsx --test 'src/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch",
+    "check": "pnpm lint && pnpm test",
     "prepare": "husky",
     "prepublishOnly": "pnpm lint && pnpm test && pnpm build"
   },
   "lint-staged": {
-    "{src,tests}/**/*.ts": [
+    "src/**/*.ts": [
       "prettier --write",
       "eslint --fix"
     ]

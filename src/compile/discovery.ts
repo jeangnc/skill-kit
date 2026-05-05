@@ -2,8 +2,8 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { PluginSchema, type Plugin } from "../plugin.js";
-import { formatZodIssues } from "../zod.js";
+import { PluginSchema, type Plugin } from "../plugin/index.js";
+import { formatZodIssues } from "../errors/index.js";
 
 export async function pathExists(p: string): Promise<boolean> {
   try {

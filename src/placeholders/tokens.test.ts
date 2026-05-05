@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { parsePlaceholders, substitute, type ValidatorRegistry } from "../src/placeholders.js";
+import { parsePlaceholders, substitute, type ValidatorRegistry } from "./tokens.js";
 
 test("parsePlaceholders extracts a single prefixed placeholder", () => {
   const tokens = parsePlaceholders("see {{skill:dev-tools:ruby}} for more");

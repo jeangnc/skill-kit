@@ -3,11 +3,16 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 
 import { dump } from "js-yaml";
 
-import { RESERVED_COMPANION_FILENAMES, type Companion, type Skill } from "../skill.js";
-import { type Plugin } from "../plugin.js";
-import { checkCompanionFiles } from "../invariants.js";
-import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders.js";
-import { loadSkill } from "../skill-source.js";
+import {
+  checkCompanionFiles,
+  formatLoadSkillError,
+  isReservedCompanionFilename,
+  loadSkill,
+  type Companion,
+  type Skill,
+} from "../skill/index.js";
+import { type Plugin } from "../plugin/index.js";
+import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders/index.js";
 
 import { pathExists, throwInvariantViolations } from "./discovery.js";
 
@@ -28,19 +33,11 @@ export async function emitPluginManifests(
   }
 }
 
-function toLegacyPluginJson(plugin: Plugin): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    name: plugin.name,
-    version: plugin.version,
-    description: plugin.description,
-  };
-  if (plugin.author) out.author = plugin.author;
-  if (plugin.homepage) out.homepage = plugin.homepage;
-  if (plugin.repository) out.repository = plugin.repository;
-  if (plugin.license) out.license = plugin.license;
-  if (plugin.keywords) out.keywords = plugin.keywords;
-  if (plugin.dependencies) out.dependencies = plugin.dependencies;
-  return out;
+type LegacyPluginManifest = Omit<Plugin, "context">;
+
+function toLegacyPluginJson(plugin: Plugin): LegacyPluginManifest {
+  const { context, ...legacy } = plugin;
+  return legacy;
 }
 
 export async function compileTree(
@@ -83,7 +80,7 @@ async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[
     const file = basename(absPath);
     if (SKILL_SOURCE_FILENAMES.has(file)) {
       result.set(dir, result.get(dir) ?? []);
-    } else if (file.endsWith(".md") && !RESERVED_COMPANION_FILENAMES.has(file)) {
+    } else if (file.endsWith(".md") && !isReservedCompanionFilename(file)) {
       const list = result.get(dir) ?? [];
       list.push(file);
       result.set(dir, list);
@@ -100,7 +97,11 @@ async function emitSkill(
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
   const skillDir = dirname(srcPath);
-  const { skill, body } = await loadSkill(skillDir);
+  const loaded = await loadSkill(skillDir);
+  if (!loaded.ok) {
+    throwInvariantViolations(srcPath, formatLoadSkillError(loaded.error));
+  }
+  const { skill, body } = loaded.value;
   const expectedName = basename(skillDir);
 
   const errors: string[] = [];

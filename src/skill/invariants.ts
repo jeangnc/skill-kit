@@ -1,4 +1,4 @@
-import type { Companion } from "./skill.js";
+import type { Companion } from "./schema.js";
 
 export function checkCompanionFiles(
   companions: readonly Companion[] | undefined,

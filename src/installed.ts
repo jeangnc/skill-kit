@@ -2,6 +2,10 @@ import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import { z } from "zod";
+
+const PluginManifestSchema = z.object({ name: z.string().min(1) });
+
 export interface PluginSource {
   readonly name: string;
   readonly root: string;
@@ -14,10 +18,13 @@ export interface InstalledSkill {
   readonly path: string;
 }
 
-export const DEFAULT_SOURCES: readonly PluginSource[] = [
-  { name: "claude", root: join(homedir(), ".claude/plugins/cache") },
-  { name: "codex", root: join(homedir(), ".codex/plugins/cache") },
-];
+export function defaultSources(): readonly PluginSource[] {
+  const home = homedir();
+  return [
+    { name: "claude", root: join(home, ".claude/plugins/cache") },
+    { name: "codex", root: join(home, ".codex/plugins/cache") },
+  ];
+}
 
 const PLUGIN_MANIFEST_RELATIVE_PATHS = [
   ".claude-plugin/plugin.json",
@@ -104,10 +111,12 @@ async function readPluginName(manifestPath: string): Promise<string | null> {
   } catch {
     return null;
   }
+  let json: unknown;
   try {
-    const parsed = JSON.parse(raw) as { name?: unknown };
-    return typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : null;
+    json = JSON.parse(raw);
   } catch {
     return null;
   }
+  const parsed = PluginManifestSchema.safeParse(json);
+  return parsed.success ? parsed.data.name : null;
 }

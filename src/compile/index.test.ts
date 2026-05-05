@@ -14,14 +14,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { compile } from "../src/compile/index.js";
+import { compile } from "./index.js";
+import type { Plugin } from "../plugin/index.js";
 
-const fixturesRoot = fileURLToPath(new URL("./fixtures", import.meta.url));
+const fixturesRoot = fileURLToPath(new URL("./__fixtures__", import.meta.url));
 const goodRoot = join(fixturesRoot, "good");
 const companionRenderRoot = join(fixturesRoot, "companionRender");
 const withPluginRoot = join(fixturesRoot, "withPlugin");
 
-function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
+async function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
   const dist = mkdtempSync(join(tmpdir(), "skill-kit-test-"));
   return fn(dist).finally(() => rmSync(dist, { recursive: true, force: true }));
 }
@@ -33,7 +34,7 @@ interface SkillFixtureOptions {
   readonly companionFiles?: Readonly<Record<string, string>>;
 }
 
-function withSkillFixture<T>(
+async function withSkillFixture<T>(
   options: SkillFixtureOptions,
   fn: (srcRoot: string, distRoot: string) => Promise<T>,
 ): Promise<T> {
@@ -67,7 +68,7 @@ interface PluginFixtureOptions {
   readonly extraFiles?: Readonly<Record<string, string>>;
 }
 
-function withPluginFixture<T>(
+async function withPluginFixture<T>(
   options: PluginFixtureOptions,
   fn: (srcRoot: string, distRoot: string) => Promise<T>,
 ): Promise<T> {
@@ -337,7 +338,7 @@ test("compile emits plugin.json from PLUGIN.ts with legacy keys preserved", asyn
     const manifestPath = join(dist, "plugins/foo/.claude-plugin/plugin.json");
     assert.ok(existsSync(manifestPath), `expected ${manifestPath} to exist`);
 
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Omit<Plugin, "context">;
     assert.equal(manifest.name, "foo");
     assert.equal(manifest.version, "1.2.3");
     assert.equal(manifest.description, "demo plugin used by withPlugin fixture");

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { SkillSchema, CompanionSchema } from "../src/skill.js";
+import { SkillSchema, CompanionSchema } from "./schema.js";
 
 test("SkillSchema rejects duplicate companion files", () => {
   const result = SkillSchema.safeParse({

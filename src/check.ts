@@ -1,15 +1,15 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { parsePlaceholders } from "./placeholders.js";
-import { loadSkill, findSkillFile } from "./skill-source.js";
+import { offsetToLineCol, parsePlaceholders } from "./placeholders/index.js";
+import { findSkillFile, formatLoadSkillError, loadSkill } from "./skill/index.js";
 import {
-  DEFAULT_SOURCES,
+  defaultSources,
   discoverInstalledSkills,
   indexSkills,
+  type InstalledSkill,
   type PluginSource,
-} from "./sources.js";
-import { offsetToLineCol } from "./source-position.js";
+} from "./installed.js";
 
 export interface CheckOptions {
   readonly srcRoot: string;
@@ -50,7 +50,7 @@ interface BodySource {
 }
 
 export async function check(options: CheckOptions): Promise<CheckResult> {
-  const sources = options.sources ?? DEFAULT_SOURCES;
+  const sources = options.sources ?? defaultSources();
   const installed = await discoverInstalledSkills(sources);
   const index = indexSkills(installed);
   const indexedSources = sources.map<SourceSummary>((s) => ({
@@ -62,13 +62,18 @@ export async function check(options: CheckOptions): Promise<CheckResult> {
   let checkedFiles = 0;
   for await (const skillDir of findSkillDirs(options.srcRoot)) {
     const loaded = await loadSkill(skillDir);
+    if (!loaded.ok) {
+      throw new Error(
+        `failed to load skill at ${skillDir}:\n  - ${formatLoadSkillError(loaded.error).join("\n  - ")}`,
+      );
+    }
     checkedFiles += 1;
-    const fileText = await readFile(loaded.bodyFilePath, "utf8");
+    const fileText = await readFile(loaded.value.bodyFilePath, "utf8");
     const source: BodySource = {
-      body: loaded.body,
-      bodyOffset: loaded.bodyOffset,
+      body: loaded.value.body,
+      bodyOffset: loaded.value.bodyOffset,
       fileText,
-      filePath: loaded.bodyFilePath,
+      filePath: loaded.value.bodyFilePath,
     };
     for (const violation of validateBody(source, index)) {
       violations.push(violation);
@@ -80,7 +85,7 @@ export async function check(options: CheckOptions): Promise<CheckResult> {
 
 function validateBody(
   source: BodySource,
-  index: ReadonlyMap<string, readonly unknown[]>,
+  index: ReadonlyMap<string, readonly InstalledSkill[]>,
 ): readonly ExtViolation[] {
   const violations: ExtViolation[] = [];
   for (const token of parsePlaceholders(source.body)) {
@@ -114,7 +119,8 @@ function validateBody(
 async function* findSkillDirs(srcRoot: string): AsyncGenerator<string> {
   if (!(await pathExists(srcRoot))) return;
   for await (const dir of walkDirs(srcRoot)) {
-    if (await findSkillFile(dir)) yield dir;
+    const found = await findSkillFile(dir);
+    if (!found.ok || found.value) yield dir;
   }
 }
 

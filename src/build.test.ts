@@ -4,12 +4,12 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { build } from "../src/build.js";
+import { build } from "./build.js";
 
-const fixturesRoot = fileURLToPath(new URL("./fixtures", import.meta.url));
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
-function withSandbox<T>(fn: (srcRoot: string, outRoot: string) => Promise<T>): Promise<T> {
-  const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_"));
+async function withSandbox<T>(fn: (srcRoot: string, outRoot: string) => Promise<T>): Promise<T> {
+  const sandbox = mkdtempSync(join(repoRoot, ".test-tmp-build-"));
   const srcRoot = join(sandbox, "src");
   const outRoot = join(sandbox, "out");
   const skillDir = join(srcRoot, "plugins/foo/skills/bar");

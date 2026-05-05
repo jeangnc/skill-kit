@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { formatZodIssues } from "../zod.js";
+import { formatZodIssues } from "../errors/index.js";
 
 export const PluginManifestSchema = z.object({
   name: z.string().min(1),

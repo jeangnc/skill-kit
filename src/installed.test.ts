@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  DEFAULT_SOURCES,
+  defaultSources,
   discoverInstalledSkills,
   indexSkills,
   type PluginSource,
-} from "../src/sources.js";
+} from "./installed.js";
 
-function withInstalledSourceFixture<T>(fn: (root: string) => Promise<T>): Promise<T> {
+async function withInstalledSourceFixture<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), "skill-kit-sources-"));
   return fn(root).finally(() => rmSync(root, { recursive: true, force: true }));
 }
@@ -197,13 +197,15 @@ test("indexSkills groups installed skills by <plugin>:<skill> id", async () => {
   });
 });
 
-test("DEFAULT_SOURCES contains a claude source and a codex source", () => {
-  const names = DEFAULT_SOURCES.map((s: PluginSource) => s.name).sort();
+test("defaultSources returns a claude source and a codex source", () => {
+  const names = defaultSources()
+    .map((s: PluginSource) => s.name)
+    .sort();
   assert.deepEqual(names, ["claude", "codex"]);
 });
 
-test("DEFAULT_SOURCES roots resolve under the user's home directory", () => {
-  for (const source of DEFAULT_SOURCES) {
+test("defaultSources roots resolve under the user's home directory", () => {
+  for (const source of defaultSources()) {
     assert.match(source.root, /\.(claude|codex)\/plugins\/cache$/);
   }
 });

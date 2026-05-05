@@ -4,17 +4,13 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  installWithRunner,
-  uninstallWithRunner,
-  type InstallOptions,
-} from "../src/install/index.js";
+import { installWithRunner, uninstallWithRunner, type InstallOptions } from "./index.js";
 
 type CommandRunner = (cmd: string, args: readonly string[]) => Promise<void>;
 type OldOpts = InstallOptions & { readonly runCommand: CommandRunner };
-const install = ({ runCommand, ...opts }: OldOpts): Promise<void> =>
+const install = async ({ runCommand, ...opts }: OldOpts): Promise<void> =>
   installWithRunner(opts, runCommand);
-const uninstall = ({ runCommand, ...opts }: OldOpts): Promise<void> =>
+const uninstall = async ({ runCommand, ...opts }: OldOpts): Promise<void> =>
   uninstallWithRunner(opts, runCommand);
 
 interface CommandCall {
@@ -45,7 +41,7 @@ interface FixtureOptions {
   }>;
 }
 
-function withInstallFixture<T>(
+async function withInstallFixture<T>(
   options: FixtureOptions,
   fn: (paths: {
     readonly distRoot: string;

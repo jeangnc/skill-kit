@@ -147,7 +147,3 @@ Local skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-## License
-
-MIT

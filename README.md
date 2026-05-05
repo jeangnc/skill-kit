@@ -1,4 +1,4 @@
-# @jean.gnc/skill-kit
+# Skill Kit
 
 Typed framework for authoring Claude Code skills. Skills are declared as a tiny TypeScript metadata file plus a sibling `body.md` written in plain Markdown. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects.
 

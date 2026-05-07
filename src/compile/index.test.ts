@@ -21,6 +21,7 @@ const fixturesRoot = fileURLToPath(new URL("./__fixtures__", import.meta.url));
 const goodRoot = join(fixturesRoot, "good");
 const companionRenderRoot = join(fixturesRoot, "companionRender");
 const withPluginRoot = join(fixturesRoot, "withPlugin");
+const mdSourceRoot = join(fixturesRoot, "mdSource");
 
 async function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
   const dist = mkdtempSync(join(tmpdir(), "skill-kit-test-"));
@@ -680,4 +681,109 @@ test("compile runs consumer-supplied bodyInvariants", async () => {
       );
     },
   );
+});
+
+test("compile expands {{include:./path.md}} in a SKILL.md body", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\nbefore\n{{include:./fragment.md}}\nafter\n`;
+  await withSkillFixture(
+    { skillMd, companionFiles: { "fragment.md": "INLINED-CONTENT\n" } },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /before\nINLINED-CONTENT\n\nafter/);
+      assert.ok(!out.includes("{{include:"), `raw include token survived in:\n${out}`);
+    },
+  );
+});
+
+test("compile resolves placeholders inside an included file against the host skill", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\n{{include:./shared.md}}\n`;
+  await withSkillFixture(
+    { skillMd, companionFiles: { "shared.md": "see {{ext:foo:bar}} please\n" } },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /see `foo:bar` please/);
+    },
+  );
+});
+
+test("compile fails on an include cycle", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\n{{include:./a.md}}\n`;
+  await withSkillFixture(
+    {
+      skillMd,
+      companionFiles: { "a.md": "{{include:./b.md}}", "b.md": "{{include:./a.md}}" },
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /cycle/);
+    },
+  );
+});
+
+test("compile fails when an include path escapes the skill directory", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\n{{include:../../leak.md}}\n`;
+  await withSkillFixture({ skillMd }, async (srcRoot, distRoot) => {
+    await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /escapes/);
+  });
+});
+
+test("compile fails when an include target is missing", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\n{{include:./ghost.md}}\n`;
+  await withSkillFixture({ skillMd }, async (srcRoot, distRoot) => {
+    await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /not found/);
+  });
+});
+
+test("compile does not copy included .md files into dist", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\n{{include:./fragment.md}}\n`;
+  await withSkillFixture(
+    { skillMd, companionFiles: { "fragment.md": "inlined\n" } },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const stray = join(distRoot, "plugins/foo/skills/bar/fragment.md");
+      assert.ok(!existsSync(stray), `included file should not land in dist at ${stray}`);
+    },
+  );
+});
+
+test("compile leaves frontmatter untouched when {{include:...}} appears in body", async () => {
+  const skillMd = `---\nname: bar\ndescription: untouched description\n---\n\n{{include:./fragment.md}}\n`;
+  await withSkillFixture(
+    { skillMd, companionFiles: { "fragment.md": "body content\n" } },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /^---\nname: bar\ndescription: untouched description\n---\n\n/);
+    },
+  );
+});
+
+test("compile does not flag an included sibling as an undeclared companion", async () => {
+  const skillMd = `---\nname: bar\ndescription: x\n---\n\n{{include:./fragment.md}}\n`;
+  await withSkillFixture(
+    { skillMd, companionFiles: { "fragment.md": "inlined\n" } },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+    },
+  );
+});
+
+test("compile builds the markdown-only fixture end-to-end", async () => {
+  await withTempDist(async (dist) => {
+    await compile({ srcRoot: mdSourceRoot, outRoot: dist });
+
+    const skillPath = join(dist, "plugins/foo/skills/bar/SKILL.md");
+    assert.ok(existsSync(skillPath), `expected ${skillPath} to exist`);
+
+    const content = readFileSync(skillPath, "utf8");
+    assert.match(content, /^---\nname: bar\ndescription: [^\n]+\n---\n/);
+    assert.match(content, /Inlined verbatim from preamble\.md\./);
+    assert.match(content, /`superpowers:test-driven-development`/);
+    assert.doesNotMatch(content, /\{\{include:/);
+    assert.doesNotMatch(content, /\{\{ext:/);
+
+    const preambleCopy = join(dist, "plugins/foo/skills/bar/preamble.md");
+    assert.ok(!existsSync(preambleCopy), `did not expect ${preambleCopy} to exist`);
+  });
 });

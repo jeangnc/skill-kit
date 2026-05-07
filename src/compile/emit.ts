@@ -11,6 +11,7 @@ import {
   type Companion,
   type Skill,
 } from "../skill/index.js";
+import { expandIncludes, formatIncludeError } from "../skill/includes.js";
 import { type Plugin } from "../plugin/index.js";
 import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders/index.js";
 
@@ -47,27 +48,30 @@ export async function compileTree(
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
   const skillFolders = await collectSkillFolders(srcRoot);
+  const includedAbsPaths = new Set<string>();
 
   for await (const absPath of walk(srcRoot)) {
-    const rel = relative(srcRoot, absPath);
-    const target = join(outRoot, rel);
+    if (!SKILL_SOURCE_FILENAMES.has(basename(absPath))) continue;
+    const target = join(outRoot, relative(srcRoot, absPath));
+    const companions = skillFolders.get(dirname(absPath)) ?? [];
+    const result = await emitSkill(
+      absPath,
+      join(dirname(target), "SKILL.md"),
+      companions,
+      localSkillIds,
+      bodyInvariants,
+    );
+    for (const p of result.resolvedIncludes) includedAbsPaths.add(p);
+  }
+
+  for await (const absPath of walk(srcRoot)) {
     const file = basename(absPath);
-
-    if (SKILL_SOURCE_FILENAMES.has(file)) {
-      const companions = skillFolders.get(dirname(absPath)) ?? [];
-      await emitSkill(
-        absPath,
-        join(dirname(target), "SKILL.md"),
-        companions,
-        localSkillIds,
-        bodyInvariants,
-      );
-      continue;
-    }
-
+    if (SKILL_SOURCE_FILENAMES.has(file)) continue;
     if (absPath.endsWith(".ts")) continue;
     if (file === "body.md") continue;
+    if (includedAbsPaths.has(absPath)) continue;
 
+    const target = join(outRoot, relative(srcRoot, absPath));
     await mkdir(dirname(target), { recursive: true });
     await copyFile(absPath, target);
   }
@@ -89,13 +93,17 @@ async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[
   return result;
 }
 
+interface EmitResult {
+  readonly resolvedIncludes: ReadonlySet<string>;
+}
+
 async function emitSkill(
   srcPath: string,
   outPath: string,
   siblings: readonly string[],
   localSkillIds: ReadonlySet<string>,
   bodyInvariants: readonly BodyInvariant[],
-): Promise<void> {
+): Promise<EmitResult> {
   const skillDir = dirname(srcPath);
   const loaded = await loadSkill(skillDir);
   if (!loaded.ok) {
@@ -104,29 +112,41 @@ async function emitSkill(
   const { skill, body } = loaded.value;
   const expectedName = basename(skillDir);
 
+  const expanded = await expandIncludes(body, loaded.value.skillFilePath, skillDir);
+  if (!expanded.ok) {
+    throwInvariantViolations(srcPath, expanded.error.map(formatIncludeError));
+  }
+  const expandedBody = expanded.value.body;
+  const includedFilenames = new Set(
+    [...expanded.value.resolvedIncludes].map((p) => relative(skillDir, p)),
+  );
+  const filteredSiblings = siblings.filter((s) => !includedFilenames.has(s));
+
   const errors: string[] = [];
   if (skill.name !== expectedName) {
     errors.push(`name "${skill.name}" does not match folder "${expectedName}"`);
   }
   for (const check of bodyInvariants) {
-    errors.push(...check(body));
+    errors.push(...check(expandedBody));
   }
-  errors.push(...checkCompanionFiles(skill.companions, siblings));
-  errors.push(...checkCompanionsTokenParity(body, skill.companions));
+  errors.push(...checkCompanionFiles(skill.companions, filteredSiblings));
+  errors.push(...checkCompanionsTokenParity(expandedBody, skill.companions));
 
   if (errors.length > 0) {
     throwInvariantViolations(srcPath, errors);
   }
 
-  const existingRefs = await precomputeExistingRefs(body, skillDir);
+  const existingRefs = await precomputeExistingRefs(expandedBody, skillDir);
   const registry = buildRegistry(skill.companions, localSkillIds, existingRefs, skillDir);
-  const result = substitute(body, registry);
+  const result = substitute(expandedBody, registry);
   if (!result.ok) {
     throwInvariantViolations(srcPath, result.errors);
   }
 
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, renderFrontmatter(skill) + result.rendered);
+
+  return { resolvedIncludes: expanded.value.resolvedIncludes };
 }
 
 function renderFrontmatter(skill: Skill): string {

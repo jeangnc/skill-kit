@@ -1,6 +1,6 @@
 # Skill Kit
 
-Typed framework for authoring Claude Code skills. Skills are declared as a tiny TypeScript metadata file plus a sibling `body.md` written in plain Markdown. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects.
+Typed framework for authoring Claude Code skills. A skill is a single `SKILL.md` file — frontmatter plus a Markdown body. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects. A typed `SKILL.ts` form is also available when you want schema-checked metadata.
 
 ## Requirements
 
@@ -28,12 +28,68 @@ src/
       .codex-plugin/plugin.json  # codex target manifest (optional)
       skills/
         <skill>/
-          SKILL.ts
-          body.md
+          SKILL.md
           <companion>.md         # optional
 ```
 
-Skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.ts`. The `name` field must match the skill's folder name.
+Skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.md`. The `name` field in frontmatter must match the skill's folder name.
+
+```md
+<!-- SKILL.md -->
+---
+name: my-skill
+description: What the skill does — single line.
+companions:
+  - file: details.md
+    summary: Deeper notes.
+---
+
+# My Skill
+
+For type safety conventions, see {{skill:dev-tools:typescript}}.
+For TDD discipline, see {{ext:superpowers:test-driven-development}}.
+For details, see {{ref:details.md}}.
+
+{{companions}}
+```
+
+Compiles to:
+
+```md
+<!-- dist/plugins/<plugin>/skills/my-skill/SKILL.md -->
+---
+name: my-skill
+description: What the skill does — single line.
+companions:
+  - file: details.md
+    summary: Deeper notes.
+---
+
+# My Skill
+
+For type safety conventions, see `dev-tools:typescript`.
+For TDD discipline, see `superpowers:test-driven-development`.
+For details, see `details.md`.
+
+## Companion files (read on demand)
+
+- `details.md` — Deeper notes.
+```
+
+### Composing with includes
+
+Use `{{include:./fragment.md}}` to inline another Markdown file verbatim into the body. Includes expand recursively (an included file may itself contain `{{include:...}}`), and any other placeholders inside the inlined content are resolved against the **host skill**, not the include source.
+
+Constraints:
+
+- Path must be relative and stay inside the skill directory.
+- Target must end in `.md`.
+- Cycles are detected and fail the build.
+- Included files are not copied into `dist/` and are not flagged as undeclared companions.
+
+### Authoring with TypeScript (alternative)
+
+If you prefer typed metadata, use `SKILL.ts` + sibling `body.md` instead of a single `SKILL.md`:
 
 ```ts
 // SKILL.ts
@@ -51,31 +107,9 @@ export default defineSkill({
 # My Skill
 
 For type safety conventions, see {{skill:dev-tools:typescript}}.
-For TDD discipline, see {{external:superpowers:test-driven-development}}.
-For details, see {{companion:details.md}}.
-
-{{companions}}
 ```
 
-Compiles to:
-
-```md
-<!-- dist/plugins/<plugin>/skills/my-skill/SKILL.md -->
----
-name: my-skill
-description: What the skill does — single line.
----
-
-# My Skill
-
-For type safety conventions, see `dev-tools:typescript`.
-For TDD discipline, see `superpowers:test-driven-development`.
-For details, see `details.md`.
-
-## Companion files (read on demand)
-
-- `details.md` — Deeper notes.
-```
+A skill folder must contain exactly one of `SKILL.md` or `SKILL.ts`. Both forms run through the same placeholder pipeline and produce identical `dist/` output.
 
 ## Building
 
@@ -124,24 +158,25 @@ await build({
   srcRoot: "./src",
   outRoot: "./dist",
   bodyInvariants: [
-    /* (body) => string[] — extra checks to run on every body.md */
+    /* (body) => string[] — extra checks to run on every skill body */
   ],
 });
 
 await install({ targets: ["claude", "codex"] });
 ```
 
-`bodyInvariants` are consumer-supplied predicates of type `(body: string) => string[]`. Each runs on every `body.md` during compile; any returned strings are reported as invariant violations and fail the build.
+`bodyInvariants` are consumer-supplied predicates of type `(body: string) => string[]`. Each runs on every skill body (after `{{include:...}}` expansion, before placeholder substitution) during compile; any returned strings are reported as invariant violations and fail the build.
 
 ## Placeholder reference
 
-Local skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.ts`. Use `{{skill:...}}` for local references (build fails on typos) and `{{external:...}}` for cross-plugin references (rendered as-is, no validation).
+Local skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/`. Use `{{skill:...}}` for local references (build fails on typos) and `{{ext:...}}` for cross-plugin references (rendered as-is, no validation).
 
 | Placeholder | Renders to | Validation |
 | --- | --- | --- |
 | `{{skill:<plugin>:<name>}}` | `` `<plugin>:<name>` `` | Must be a discovered local skill |
-| `{{external:<id>}}` | `` `<id>` `` | None — opaque external reference |
-| `{{companion:<file>.md}}` | `` `<file>.md` `` | Must be a declared companion |
+| `{{ext:<plugin>:<skill>}}` | `` `<plugin>:<skill>` `` | None — opaque external reference |
+| `{{ref:<relative-path>}}` | `` `<relative-path>` `` | Must be a file under the skill directory |
+| `{{include:<relative-path.md>}}` | Inlined content of the target file | Must be a `.md` file inside the skill, no cycles |
 | `{{companions}}` | Companion files section | Required iff companions are declared |
 
 ## Contributing

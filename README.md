@@ -113,10 +113,12 @@ A skill folder must contain exactly one of `SKILL.md` or `SKILL.ts`. Both forms 
 
 ## Building
 
-The package ships a `skill-kit` CLI bin with three subcommands:
+The package ships a `skill-kit` CLI bin:
 
 ```sh
-skill-kit build      # compile typed sources to dist/ (default)
+skill-kit build      # compile typed sources to dist/
+skill-kit lint       # lint compiled markdown under dist/ with default rules
+skill-kit check      # validate {{ext:...}} refs against installed plugins
 skill-kit install    # install dist/ plugins into Claude + Codex
 skill-kit uninstall  # remove them
 ```
@@ -127,6 +129,7 @@ In your `package.json`:
 {
   "scripts": {
     "build": "skill-kit build",
+    "lint": "skill-kit build && skill-kit lint",
     "install:plugins": "skill-kit install",
     "uninstall:plugins": "skill-kit uninstall"
   },
@@ -138,6 +141,8 @@ In your `package.json`:
 
 `build` defaults: `./src` → `./dist`. Override with `--src` and `--out`.
 
+`lint` defaults: `./dist`. Runs `markdownlint-cli2` against `plugins/**/*.md` with skill-kit's bundled rules — `MD013` (line length), `MD041` (first-line h1), and `MD033` (inline HTML) disabled; `MD024` scoped to `siblings_only`; `MD031` allows omitting blank lines around fences inside list items. Override with `--out`.
+
 `install` / `uninstall` defaults: reads `./dist`, targets both Claude and Codex. Filter with `--targets claude` or `--targets codex`. The marketplace name is read from `./dist/.claude-plugin/marketplace.json`, and the `claude` / `codex` CLIs must be on `$PATH`.
 
 For programmatic use:
@@ -145,6 +150,7 @@ For programmatic use:
 ```ts
 import {
   build,
+  lint,
   install,
   uninstall,
   compile,

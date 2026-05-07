@@ -42,6 +42,9 @@ export type { BodyInvariant, CompileOptions } from "./compile/index.js";
 export { build } from "./build.js";
 export type { BuildOptions } from "./build.js";
 
+export { lint } from "./lint.js";
+export type { LintOptions, LintResult } from "./lint.js";
+
 export { install, uninstall } from "./install/index.js";
 export type { InstallOptions, Target } from "./install/index.js";
 

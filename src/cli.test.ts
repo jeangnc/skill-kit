@@ -54,3 +54,9 @@ test("cli check --help exits 0 and mentions --src", () => {
   assert.equal(status, 0);
   assert.match(stdout, /--src/);
 });
+
+test("cli lint --help exits 0 and mentions --out", () => {
+  const { status, stdout } = runCli(["lint", "--help"]);
+  assert.equal(status, 0);
+  assert.match(stdout, /--out/);
+});

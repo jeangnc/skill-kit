@@ -8,6 +8,7 @@ import { z } from "zod";
 import { build } from "./build.js";
 import { check, type ExtViolation } from "./check.js";
 import { install, uninstall, type Target } from "./install/index.js";
+import { lint } from "./lint.js";
 
 const PackageJsonSchema = z.object({ version: z.string().min(1) });
 
@@ -114,6 +115,21 @@ function formatViolation(v: ExtViolation): string {
   return `${v.file}:${v.line}:${v.column}  \`${v.token}\` — ${v.message}`;
 }
 
+const lintCmd = defineCommand({
+  meta: {
+    name: "lint",
+    description: "Lint compiled markdown under dist/ with skill-kit's default rules",
+  },
+  args: {
+    out: { type: "string", default: "./dist", description: "output root" },
+    silent: { type: "boolean", default: false, description: "suppress non-error output" },
+  },
+  run: async ({ args }) => {
+    const result = await lint({ outRoot: args.out, silent: args.silent });
+    if (result.errorCount > 0) process.exit(1);
+  },
+});
+
 const main = defineCommand({
   meta: {
     name: "skill-kit",
@@ -124,6 +140,7 @@ const main = defineCommand({
     build: buildCmd,
     check: checkCmd,
     install: installCmd,
+    lint: lintCmd,
     uninstall: uninstallCmd,
   },
 });

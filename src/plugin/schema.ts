@@ -24,25 +24,56 @@ const contextListSchema = z
     "context files must be unique",
   );
 
-export const PluginSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .regex(/^[a-z0-9-]+$/, "name must be lowercase kebab-case"),
-  version: z.string().min(1),
-  description: z
-    .string()
-    .min(1)
-    .max(1024)
-    .refine((s) => !s.includes("\n"), "description cannot contain newlines"),
-  author: AuthorSchema.optional(),
-  homepage: z.string().min(1).optional(),
-  repository: z.string().min(1).optional(),
-  license: z.string().min(1).optional(),
-  keywords: z.array(z.string().min(1)).optional(),
-  dependencies: z.array(z.string().min(1)).optional(),
-  context: contextListSchema,
+const SLUG_REF = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9-]+:[a-z0-9-]+$/, "must match <plugin>:<name> kebab-case");
+
+const HookRequirementBase = z.object({
+  event: z.string().min(1),
+  skill: SLUG_REF.optional(),
+  command: SLUG_REF.optional(),
+  agent: SLUG_REF.optional(),
 });
+
+export const HookRequirementSchema = HookRequirementBase.strict().superRefine((value, ctx) => {
+  const slugs = [value.skill, value.command, value.agent].filter((s) => s !== undefined);
+  if (slugs.length !== 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "exactly one of skill | command | agent must be set",
+      path: [],
+    });
+  }
+});
+
+export type HookRequirement = z.infer<typeof HookRequirementSchema>;
+
+export const PluginSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .regex(/^[a-z0-9-]+$/, "name must be lowercase kebab-case"),
+    version: z.string().min(1),
+    description: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine((s) => !s.includes("\n"), "description cannot contain newlines"),
+    author: AuthorSchema.optional(),
+    homepage: z.string().min(1).optional(),
+    repository: z.string().min(1).optional(),
+    license: z.string().min(1).optional(),
+    keywords: z.array(z.string().min(1)).optional(),
+    dependencies: z.array(z.string().min(1)).optional(),
+    context: contextListSchema,
+    commands: z.string().min(1).optional(),
+    agents: z.string().min(1).optional(),
+    hooks: z.string().min(1).optional(),
+    hookRequires: z.array(HookRequirementSchema).optional(),
+  })
+  .strict();
 
 export type Plugin = z.infer<typeof PluginSchema>;
 

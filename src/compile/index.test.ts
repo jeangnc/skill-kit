@@ -1069,3 +1069,92 @@ export default definePlugin({ name: "foo", version: "1.0.0", description: "demo"
     },
   );
 });
+
+test("compile accepts hookRequires that point to existing local artifacts", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [
+    { event: "SessionStart", skill: "foo:bar" },
+    { event: "UserPromptSubmit", command: "foo:open" },
+    { event: "Stop", agent: "foo:rev" },
+  ],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      makeStubSkill(srcRoot, "foo", "bar");
+      makeStubCommand(srcRoot, "foo", "open");
+      makeStubAgent(srcRoot, "foo", "rev");
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/.claude-plugin/plugin.json")));
+    },
+  );
+});
+
+test("compile fails when a hookRequires skill slug is not a local skill", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [{ event: "SessionStart", skill: "foo:ghost" }],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /hookRequires.*foo:ghost.*not a local skill/i,
+      );
+    },
+  );
+});
+
+test("compile fails when a hookRequires command slug is not a local command", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [{ event: "UserPromptSubmit", command: "foo:ghost" }],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /hookRequires.*foo:ghost.*not a local command/i,
+      );
+    },
+  );
+});
+
+test("compile fails when a hookRequires agent slug is not a local agent", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [{ event: "Stop", agent: "foo:ghost" }],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /hookRequires.*foo:ghost.*not a local agent/i,
+      );
+    },
+  );
+});

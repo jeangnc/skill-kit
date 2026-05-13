@@ -1,4 +1,4 @@
-import { mkdir, readdir, copyFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, copyFile, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 import { dump } from "js-yaml";
@@ -12,43 +12,38 @@ import {
   type Skill,
 } from "../skill/index.js";
 import { expandIncludes, formatIncludeError } from "../skill/includes.js";
-import { type Plugin } from "../plugin/index.js";
 import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders/index.js";
 
 import { pathExists, throwInvariantViolations } from "./discovery.js";
+import type { LocalIds } from "../layout/index.js";
 
 const COMPANIONS_PREFIX = "companions";
 const SKILL_SOURCE_FILENAMES: ReadonlySet<string> = new Set(["SKILL.ts", "SKILL.md"]);
 const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
+export type { LocalIds } from "../layout/index.js";
+
+export interface OwningPlugin {
+  readonly name: string;
+  readonly dependencies: ReadonlySet<string>;
+}
+
 export type BodyInvariant = (body: string) => string[];
 
-export async function emitPluginManifests(
-  plugins: ReadonlyMap<string, Plugin>,
-  outRoot: string,
-): Promise<void> {
-  for (const [name, plugin] of plugins) {
-    const outManifest = join(outRoot, "plugins", name, ".claude-plugin/plugin.json");
-    await mkdir(dirname(outManifest), { recursive: true });
-    await writeFile(outManifest, JSON.stringify(toLegacyPluginJson(plugin), null, 2) + "\n");
-  }
+export interface CompileTreeOptions {
+  readonly srcRoot: string;
+  readonly outRoot: string;
+  readonly localIds: LocalIds;
+  readonly bodyInvariants: readonly BodyInvariant[];
+  readonly contextFiles?: ReadonlySet<string>;
+  readonly owner: OwningPlugin;
 }
 
-type LegacyPluginManifest = Omit<Plugin, "context">;
-
-function toLegacyPluginJson(plugin: Plugin): LegacyPluginManifest {
-  const { context, ...legacy } = plugin;
-  return legacy;
-}
-
-export async function compileTree(
-  srcRoot: string,
-  outRoot: string,
-  localSkillIds: ReadonlySet<string>,
-  bodyInvariants: readonly BodyInvariant[],
-): Promise<void> {
+export async function compileTree(options: CompileTreeOptions): Promise<void> {
+  const { srcRoot, outRoot, localIds, bodyInvariants, owner } = options;
+  const contextFiles = options.contextFiles ?? new Set<string>();
   const skillFolders = await collectSkillFolders(srcRoot);
-  const includedAbsPaths = new Set<string>();
+  const handledAbsPaths = new Set<string>();
 
   for await (const absPath of walk(srcRoot)) {
     if (!SKILL_SOURCE_FILENAMES.has(basename(absPath))) continue;
@@ -58,10 +53,17 @@ export async function compileTree(
       absPath,
       join(dirname(target), "SKILL.md"),
       companions,
-      localSkillIds,
+      localIds,
       bodyInvariants,
+      owner,
     );
-    for (const p of result.resolvedIncludes) includedAbsPaths.add(p);
+    for (const p of result.resolvedIncludes) handledAbsPaths.add(p);
+  }
+
+  for (const absPath of contextFiles) {
+    const target = join(outRoot, relative(srcRoot, absPath));
+    await emitContextFile(absPath, target, localIds, owner);
+    handledAbsPaths.add(absPath);
   }
 
   for await (const absPath of walk(srcRoot)) {
@@ -69,12 +71,35 @@ export async function compileTree(
     if (SKILL_SOURCE_FILENAMES.has(file)) continue;
     if (absPath.endsWith(".ts")) continue;
     if (file === "body.md") continue;
-    if (includedAbsPaths.has(absPath)) continue;
+    if (handledAbsPaths.has(absPath)) continue;
 
     const target = join(outRoot, relative(srcRoot, absPath));
     await mkdir(dirname(target), { recursive: true });
     await copyFile(absPath, target);
   }
+}
+
+async function emitContextFile(
+  srcPath: string,
+  outPath: string,
+  localIds: LocalIds,
+  owner: OwningPlugin,
+): Promise<void> {
+  const raw = await readFile(srcPath, "utf8");
+  const dir = dirname(srcPath);
+  const expanded = await expandIncludes(raw, srcPath, dir);
+  if (!expanded.ok) {
+    throwInvariantViolations(srcPath, expanded.error.map(formatIncludeError));
+  }
+  const expandedBody = expanded.value.body;
+  const existingRefs = await precomputeExistingRefs(expandedBody, dir);
+  const registry = buildRegistry(undefined, localIds, existingRefs, dir, owner);
+  const result = substitute(expandedBody, registry);
+  if (!result.ok) {
+    throwInvariantViolations(srcPath, result.errors);
+  }
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, result.rendered);
 }
 
 async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[]>> {
@@ -101,8 +126,9 @@ async function emitSkill(
   srcPath: string,
   outPath: string,
   siblings: readonly string[],
-  localSkillIds: ReadonlySet<string>,
+  localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
+  owner: OwningPlugin,
 ): Promise<EmitResult> {
   const skillDir = dirname(srcPath);
   const loaded = await loadSkill(skillDir);
@@ -137,7 +163,7 @@ async function emitSkill(
   }
 
   const existingRefs = await precomputeExistingRefs(expandedBody, skillDir);
-  const registry = buildRegistry(skill.companions, localSkillIds, existingRefs, skillDir);
+  const registry = buildRegistry(skill.companions, localIds, existingRefs, skillDir, owner);
   const result = substitute(expandedBody, registry);
   if (!result.ok) {
     throwInvariantViolations(srcPath, result.errors);
@@ -179,17 +205,50 @@ async function precomputeExistingRefs(
 
 function buildRegistry(
   companions: readonly Companion[] | undefined,
-  localSkillIds: ReadonlySet<string>,
+  localIds: LocalIds,
   existingRefs: ReadonlySet<string>,
   skillDir: string,
+  owner: OwningPlugin,
 ): ValidatorRegistry {
   return {
     skill: (value) => {
       if (value === null) return { ok: false, error: "expected `{{skill:<plugin>:<name>}}`" };
-      if (!localSkillIds.has(value)) {
+      if (!localIds.skills.has(value)) {
         return { ok: false, error: `unknown skill id "${value}" — not a local skill` };
       }
+      const crossPlugin = crossPluginViolation(value, owner);
+      if (crossPlugin) return { ok: false, error: crossPlugin };
       return { ok: true, rendered: `\`${value}\`` };
+    },
+    command: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{command:<plugin>:<command>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `command id "${value}" must match <plugin>:<command> (kebab-case)`,
+        };
+      }
+      if (!localIds.commands.has(value)) {
+        return { ok: false, error: `unknown command id "${value}" — not a local command` };
+      }
+      const crossPlugin = crossPluginViolation(value, owner);
+      if (crossPlugin) return { ok: false, error: crossPlugin };
+      return { ok: true, rendered: `\`/${value}\`` };
+    },
+    agent: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{agent:<plugin>:<agent>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `agent id "${value}" must match <plugin>:<agent> (kebab-case)`,
+        };
+      }
+      if (!localIds.agents.has(value)) {
+        return { ok: false, error: `unknown agent id "${value}" — not a local agent` };
+      }
+      const crossPlugin = crossPluginViolation(value, owner);
+      if (crossPlugin) return { ok: false, error: crossPlugin };
+      return { ok: true, rendered: `\`${bareName(value)}\`` };
     },
     ext: (value) => {
       if (value === null) return { ok: false, error: "expected `{{ext:<plugin>:<skill>}}`" };
@@ -197,6 +256,28 @@ function buildRegistry(
         return { ok: false, error: `ext id "${value}" must match <plugin>:<skill> (kebab-case)` };
       }
       return { ok: true, rendered: `\`${value}\`` };
+    },
+    "ext-command": (value) => {
+      if (value === null) {
+        return { ok: false, error: "expected `{{ext-command:<plugin>:<command>}}`" };
+      }
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `ext-command id "${value}" must match <plugin>:<command> (kebab-case)`,
+        };
+      }
+      return { ok: true, rendered: `\`/${value}\`` };
+    },
+    "ext-agent": (value) => {
+      if (value === null) return { ok: false, error: "expected `{{ext-agent:<plugin>:<agent>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `ext-agent id "${value}" must match <plugin>:<agent> (kebab-case)`,
+        };
+      }
+      return { ok: true, rendered: `\`${bareName(value)}\`` };
     },
     ref: (value) => {
       if (value === null) return { ok: false, error: "expected `{{ref:<relative-path>}}`" };
@@ -212,6 +293,20 @@ function buildRegistry(
       return { ok: true, rendered: renderCompanions(companions) };
     },
   };
+}
+
+function bareName(id: string): string {
+  const idx = id.indexOf(":");
+  return idx === -1 ? id : id.slice(idx + 1);
+}
+
+function crossPluginViolation(id: string, owner: OwningPlugin): string | null {
+  const idx = id.indexOf(":");
+  if (idx === -1) return null;
+  const otherPlugin = id.slice(0, idx);
+  if (otherPlugin === owner.name) return null;
+  if (owner.dependencies.has(otherPlugin)) return null;
+  return `cross-plugin reference to "${otherPlugin}" requires "${otherPlugin}" in ${owner.name}'s dependencies`;
 }
 
 function renderCompanions(companions: readonly Companion[]): string {

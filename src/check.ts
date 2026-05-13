@@ -4,15 +4,25 @@ import { join } from "node:path";
 import { offsetToLineCol, parsePlaceholders } from "./placeholders/index.js";
 import { findSkillFile, formatLoadSkillError, loadSkill } from "./skill/index.js";
 import {
+  collectLocalIds,
+  loadLayout,
+  type LayoutAdapter,
+  type LocalIds,
+  type ResolvedPlugin,
+} from "./layout/index.js";
+import {
   defaultSources,
-  discoverInstalledSkills,
-  indexSkills,
-  type InstalledSkill,
+  discoverInstalled,
+  indexInstalled,
+  type InstalledIndex,
   type PluginSource,
 } from "./installed.js";
 
+export type CheckMode = "local" | "installed" | "all";
+
 export interface CheckOptions {
   readonly srcRoot: string;
+  readonly mode?: CheckMode;
   readonly sources?: readonly PluginSource[];
 }
 
@@ -38,9 +48,16 @@ export interface CheckResult {
   readonly indexedSources: readonly SourceSummary[];
 }
 
-const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
+const ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 const SUGGESTION_DISTANCE_FLOOR = 2;
 const SUGGESTION_DISTANCE_DIVISOR = 3;
+
+interface KindConfig {
+  readonly noun: string;
+  readonly missingHint: string;
+  readonly malformedHint: string;
+  readonly haystack: ReadonlySet<string>;
+}
 
 interface BodySource {
   readonly body: string;
@@ -50,70 +67,218 @@ interface BodySource {
 }
 
 export async function check(options: CheckOptions): Promise<CheckResult> {
-  const sources = options.sources ?? defaultSources();
-  const installed = await discoverInstalledSkills(sources);
-  const index = indexSkills(installed);
-  const indexedSources = sources.map<SourceSummary>((s) => ({
-    source: s.name,
-    skillCount: installed.filter((i) => i.source === s.name).length,
-  }));
+  const mode: CheckMode = options.mode ?? "installed";
+  const kinds = new Map<string, KindConfig>();
+  let indexedSources: readonly SourceSummary[] = [];
+  let localAdapter: LayoutAdapter | null = null;
 
+  if (mode === "installed" || mode === "all") {
+    const sources = options.sources ?? defaultSources();
+    const artifacts = await discoverInstalled(sources);
+    const index = indexInstalled(artifacts);
+    indexedSources = sources.map<SourceSummary>((s) => ({
+      source: s.name,
+      skillCount: artifacts.skills.filter((i) => i.source === s.name).length,
+    }));
+    for (const [prefix, cfg] of installedKindConfigs(index)) kinds.set(prefix, cfg);
+  }
+
+  if (mode === "local" || mode === "all") {
+    const loaded = await loadLayout(options.srcRoot);
+    if (!loaded.ok) throw new Error(`failed to load layout: ${loaded.error.kind}`);
+    localAdapter = loaded.value;
+    const ids = await collectLocalIds(localAdapter);
+    for (const [prefix, cfg] of localKindConfigs(ids)) kinds.set(prefix, cfg);
+  }
+
+  const sources = await collectBodySources({
+    srcRoot: options.srcRoot,
+    mode,
+    adapter: localAdapter,
+  });
   const violations: ExtViolation[] = [];
-  let checkedFiles = 0;
-  for await (const skillDir of findSkillDirs(options.srcRoot)) {
-    const loaded = await loadSkill(skillDir);
-    if (!loaded.ok) {
-      throw new Error(
-        `failed to load skill at ${skillDir}:\n  - ${formatLoadSkillError(loaded.error).join("\n  - ")}`,
-      );
-    }
-    checkedFiles += 1;
-    const fileText = await readFile(loaded.value.bodyFilePath, "utf8");
-    const source: BodySource = {
-      body: loaded.value.body,
-      bodyOffset: loaded.value.bodyOffset,
-      fileText,
-      filePath: loaded.value.bodyFilePath,
-    };
-    for (const violation of validateBody(source, index)) {
+  for (const source of sources) {
+    for (const violation of validateBody(source, kinds)) {
       violations.push(violation);
     }
   }
 
-  return { violations, checkedFiles, indexedSources };
+  return { violations, checkedFiles: sources.length, indexedSources };
+}
+
+interface CollectOptions {
+  readonly srcRoot: string;
+  readonly mode: CheckMode;
+  readonly adapter: LayoutAdapter | null;
+}
+
+async function collectBodySources(opts: CollectOptions): Promise<readonly BodySource[]> {
+  const seen = new Set<string>();
+  const out: BodySource[] = [];
+  const push = async (filePath: string, body: string, bodyOffset: number): Promise<void> => {
+    if (seen.has(filePath)) return;
+    seen.add(filePath);
+    const fileText = await readFile(filePath, "utf8");
+    out.push({ body, bodyOffset, fileText, filePath });
+  };
+
+  if (opts.mode === "installed" || opts.mode === "all") {
+    for await (const skillDir of findSkillDirs(opts.srcRoot)) {
+      const loaded = await loadSkill(skillDir);
+      if (!loaded.ok) {
+        throw new Error(
+          `failed to load skill at ${skillDir}:\n  - ${formatLoadSkillError(loaded.error).join("\n  - ")}`,
+        );
+      }
+      await push(loaded.value.bodyFilePath, loaded.value.body, loaded.value.bodyOffset);
+    }
+  }
+
+  if ((opts.mode === "local" || opts.mode === "all") && opts.adapter) {
+    for (const plugin of opts.adapter.plugins) {
+      for (const file of await collectPluginBodies(plugin)) {
+        await push(file.filePath, file.body, file.bodyOffset);
+      }
+    }
+  }
+
+  return out;
+}
+
+interface PluginBody {
+  readonly filePath: string;
+  readonly body: string;
+  readonly bodyOffset: number;
+}
+
+async function collectPluginBodies(plugin: ResolvedPlugin): Promise<readonly PluginBody[]> {
+  const out: PluginBody[] = [];
+  if (await pathExists(plugin.skillsDir)) {
+    for (const entry of await readdir(plugin.skillsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = join(plugin.skillsDir, entry.name);
+      const found = await findSkillFile(skillDir);
+      if (!found.ok || !found.value) continue;
+      const loaded = await loadSkill(skillDir);
+      if (!loaded.ok) {
+        throw new Error(
+          `failed to load skill at ${skillDir}:\n  - ${formatLoadSkillError(loaded.error).join("\n  - ")}`,
+        );
+      }
+      out.push({
+        filePath: loaded.value.bodyFilePath,
+        body: loaded.value.body,
+        bodyOffset: loaded.value.bodyOffset,
+      });
+    }
+  }
+  for (const dir of [plugin.commandsDir, plugin.agentsDir]) {
+    if (!(await pathExists(dir))) continue;
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      const filePath = join(dir, entry.name);
+      const body = await readFile(filePath, "utf8");
+      out.push({ filePath, body, bodyOffset: 0 });
+    }
+  }
+  return out;
 }
 
 function validateBody(
   source: BodySource,
-  index: ReadonlyMap<string, readonly InstalledSkill[]>,
+  kinds: ReadonlyMap<string, KindConfig>,
 ): readonly ExtViolation[] {
   const violations: ExtViolation[] = [];
   for (const token of parsePlaceholders(source.body)) {
-    if (token.prefix !== "ext") continue;
+    const kind = kinds.get(token.prefix);
+    if (!kind) continue;
     const { line, column } = offsetToLineCol(source.fileText, source.bodyOffset + token.start);
     const at = { token: token.raw, file: source.filePath, line, column };
 
-    if (token.value === null || !EXT_ID_PATTERN.test(token.value)) {
-      violations.push({
-        ...at,
-        kind: "malformed",
-        message: "expected `{{ext:<plugin>:<skill>}}` in kebab-case",
-      });
+    if (token.value === null || !ID_PATTERN.test(token.value)) {
+      violations.push({ ...at, kind: "malformed", message: kind.malformedHint });
       continue;
     }
 
-    if (index.has(token.value)) continue;
+    if (kind.haystack.has(token.value)) continue;
 
-    const suggestion = closestMatch(token.value, [...index.keys()]);
+    const suggestion = closestMatch(token.value, [...kind.haystack]);
     violations.push({
       ...at,
       kind: "unresolved",
       message: suggestion
-        ? `\`${token.value}\` not installed (did you mean \`${suggestion}\`?)`
-        : `\`${token.value}\` not installed`,
+        ? `\`${token.value}\` ${kind.noun} ${kind.missingHint} (did you mean \`${suggestion}\`?)`
+        : `\`${token.value}\` ${kind.noun} ${kind.missingHint}`,
     });
   }
   return violations;
+}
+
+const INSTALLED_MISSING = "not installed";
+const LOCAL_MISSING = "not found in this marketplace";
+
+function installedKindConfigs(index: InstalledIndex): ReadonlyMap<string, KindConfig> {
+  return new Map<string, KindConfig>([
+    [
+      "ext",
+      {
+        noun: "skill",
+        missingHint: INSTALLED_MISSING,
+        malformedHint: "expected `{{ext:<plugin>:<skill>}}` in kebab-case",
+        haystack: new Set(index.skills.keys()),
+      },
+    ],
+    [
+      "ext-command",
+      {
+        noun: "command",
+        missingHint: INSTALLED_MISSING,
+        malformedHint: "expected `{{ext-command:<plugin>:<command>}}` in kebab-case",
+        haystack: new Set(index.commands.keys()),
+      },
+    ],
+    [
+      "ext-agent",
+      {
+        noun: "agent",
+        missingHint: INSTALLED_MISSING,
+        malformedHint: "expected `{{ext-agent:<plugin>:<agent>}}` in kebab-case",
+        haystack: new Set(index.agents.keys()),
+      },
+    ],
+  ]);
+}
+
+function localKindConfigs(ids: LocalIds): ReadonlyMap<string, KindConfig> {
+  return new Map<string, KindConfig>([
+    [
+      "skill",
+      {
+        noun: "skill",
+        missingHint: LOCAL_MISSING,
+        malformedHint: "expected `{{skill:<plugin>:<skill>}}` in kebab-case",
+        haystack: ids.skills,
+      },
+    ],
+    [
+      "command",
+      {
+        noun: "command",
+        missingHint: LOCAL_MISSING,
+        malformedHint: "expected `{{command:<plugin>:<command>}}` in kebab-case",
+        haystack: ids.commands,
+      },
+    ],
+    [
+      "agent",
+      {
+        noun: "agent",
+        missingHint: LOCAL_MISSING,
+        malformedHint: "expected `{{agent:<plugin>:<agent>}}` in kebab-case",
+        haystack: ids.agents,
+      },
+    ],
+  ]);
 }
 
 async function* findSkillDirs(srcRoot: string): AsyncGenerator<string> {

@@ -28,6 +28,69 @@ async function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
   return fn(dist).finally(() => rmSync(dist, { recursive: true, force: true }));
 }
 
+function ensurePluginInMarketplace(srcRoot: string, pluginName: string): void {
+  const pluginDir = join(srcRoot, "plugins", pluginName);
+  mkdirSync(pluginDir, { recursive: true });
+  const pluginTsPath = join(pluginDir, "PLUGIN.ts");
+  const pluginJsonPath = join(pluginDir, ".claude-plugin/plugin.json");
+  if (!existsSync(pluginTsPath) && !existsSync(pluginJsonPath)) {
+    mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      pluginJsonPath,
+      JSON.stringify(
+        { name: pluginName, version: "0.0.1", description: "test fixture plugin" },
+        null,
+        2,
+      ) + "\n",
+    );
+  }
+
+  const marketplacePath = join(srcRoot, ".claude-plugin/marketplace.json");
+  mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
+  const existing = existsSync(marketplacePath)
+    ? (JSON.parse(readFileSync(marketplacePath, "utf8")) as {
+        plugins: Array<{ name: string; source: string }>;
+      })
+    : null;
+  if (existing) {
+    if (existing.plugins.some((p) => p.name === pluginName)) return;
+    existing.plugins.push({ name: pluginName, source: `./plugins/${pluginName}` });
+    writeFileSync(marketplacePath, JSON.stringify(existing, null, 2) + "\n");
+    for (const peer of existing.plugins) {
+      if (peer.name === pluginName) continue;
+      addDependency(srcRoot, peer.name, pluginName);
+    }
+    return;
+  }
+  writeFileSync(
+    marketplacePath,
+    JSON.stringify(
+      {
+        name: "test-marketplace",
+        owner: { name: "skill-kit-tests" },
+        plugins: [{ name: pluginName, source: `./plugins/${pluginName}` }],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+}
+
+function addDependency(srcRoot: string, plugin: string, dependency: string): void {
+  const pluginJsonPath = join(srcRoot, "plugins", plugin, ".claude-plugin/plugin.json");
+  if (!existsSync(pluginJsonPath)) return;
+  const manifest = JSON.parse(readFileSync(pluginJsonPath, "utf8")) as {
+    dependencies?: string[];
+  };
+  const deps = new Set(manifest.dependencies ?? []);
+  if (deps.has(dependency)) return;
+  deps.add(dependency);
+  writeFileSync(
+    pluginJsonPath,
+    JSON.stringify({ ...manifest, dependencies: [...deps] }, null, 2) + "\n",
+  );
+}
+
 interface SkillFixtureOptions {
   readonly skillSource?: string;
   readonly skillMd?: string;
@@ -57,6 +120,7 @@ async function withSkillFixture<T>(
   for (const [name, content] of Object.entries(options.companionFiles ?? {})) {
     writeFileSync(join(skillDir, name), content);
   }
+  ensurePluginInMarketplace(srcRoot, "foo");
   return fn(srcRoot, distRoot).finally(() => {
     rmSync(sandbox, { recursive: true, force: true });
     rmSync(distRoot, { recursive: true, force: true });
@@ -84,6 +148,7 @@ async function withPluginFixture<T>(
     mkdirSync(join(target, ".."), { recursive: true });
     writeFileSync(target, content);
   }
+  ensurePluginInMarketplace(srcRoot, options.pluginName ?? "foo");
   return fn(srcRoot, distRoot).finally(() => {
     rmSync(sandbox, { recursive: true, force: true });
     rmSync(distRoot, { recursive: true, force: true });
@@ -98,6 +163,27 @@ function makeStubSkill(srcRoot: string, plugin: string, name: string): void {
     `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "${name}", description: "stub" });\n`,
   );
   writeFileSync(join(dir, "body.md"), `# ${name}\n`);
+  ensurePluginInMarketplace(srcRoot, plugin);
+}
+
+function makeStubCommand(srcRoot: string, plugin: string, name: string): void {
+  const dir = join(srcRoot, "plugins", plugin, "commands");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${name}.md`),
+    `---\nname: ${name}\ndescription: stub command\n---\n\n# ${name}\n`,
+  );
+  ensurePluginInMarketplace(srcRoot, plugin);
+}
+
+function makeStubAgent(srcRoot: string, plugin: string, name: string): void {
+  const dir = join(srcRoot, "plugins", plugin, "agents");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${name}.md`),
+    `---\nname: ${name}\ndescription: stub agent\n---\n\n# ${name}\n`,
+  );
+  ensurePluginInMarketplace(srcRoot, plugin);
 }
 
 const SKILL_TS_BARE = `import { defineSkill } from "#skill-kit";
@@ -652,10 +738,10 @@ test("compile renders {{skill:...}} from a plain SKILL.md to a TS-authored sibli
 test("compile discovers a SKILL.md skill as a local skill (visible to {{skill:...}} from elsewhere)", async () => {
   const skillMd = `---\nname: bar\ndescription: x\n---\n\nsee {{skill:other:peer}}\n`;
   await withSkillFixture({ skillMd }, async (srcRoot, distRoot) => {
-    // peer is also authored as SKILL.md — must be discovered
     const peerDir = join(srcRoot, "plugins/other/skills/peer");
     mkdirSync(peerDir, { recursive: true });
     writeFileSync(join(peerDir, "SKILL.md"), `---\nname: peer\ndescription: peer\n---\n\n# Peer\n`);
+    ensurePluginInMarketplace(srcRoot, "other");
     await compile({ srcRoot, outRoot: distRoot });
     const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
     assert.match(out, /see `other:peer`/);
@@ -786,4 +872,492 @@ test("compile builds the markdown-only fixture end-to-end", async () => {
     const preambleCopy = join(dist, "plugins/foo/skills/bar/preamble.md");
     assert.ok(!existsSync(preambleCopy), `did not expect ${preambleCopy} to exist`);
   });
+});
+
+test("compile substitutes {{command:plugin:name}} as `/plugin:name` for a discovered local command", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "run {{command:dev-tools:open-pr}} to ship\n",
+    },
+    async (srcRoot, distRoot) => {
+      makeStubCommand(srcRoot, "dev-tools", "open-pr");
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /run `\/dev-tools:open-pr` to ship/);
+    },
+  );
+});
+
+test("compile fails when {{command:...}} references an id that is not a local command", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "see {{command:dev-tools:ghost}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /dev-tools:ghost/);
+    },
+  );
+});
+
+test("compile fails when {{command:...}} value does not have <plugin>:<command> shape", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{command:lonelyid}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<command>/);
+    },
+  );
+});
+
+test("compile substitutes {{agent:plugin:name}} as `name` (bare) for a discovered local agent", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "dispatch {{agent:dev-tools:code-reviewer}} for review\n",
+    },
+    async (srcRoot, distRoot) => {
+      makeStubAgent(srcRoot, "dev-tools", "code-reviewer");
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /dispatch `code-reviewer` for review/);
+    },
+  );
+});
+
+test("compile fails when {{agent:...}} references an id that is not a local agent", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "see {{agent:dev-tools:ghost}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /dev-tools:ghost/);
+    },
+  );
+});
+
+test("compile fails when {{agent:...}} value does not have <plugin>:<agent> shape", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{agent:lonelyid}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<agent>/);
+    },
+  );
+});
+
+test("compile renders {{ext-command:...}} as `/plugin:name` without local lookup", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "run {{ext-command:dev-tools:open-pr}} after merging\n",
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /run `\/dev-tools:open-pr` after merging/);
+    },
+  );
+});
+
+test("compile fails when {{ext-command:...}} value does not match <plugin>:<command>", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{ext-command:lonely}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<command>/);
+    },
+  );
+});
+
+test("compile renders {{ext-agent:...}} as bare `name` without local lookup", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "dispatch {{ext-agent:dev-tools:code-reviewer}} for review\n",
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /dispatch `code-reviewer` for review/);
+    },
+  );
+});
+
+test("compile fails when {{ext-agent:...}} value does not match <plugin>:<agent>", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{ext-agent:lonely}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<agent>/);
+    },
+  );
+});
+
+test("compile substitutes placeholders in context files declared on the plugin", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "use {{skill:foo:bar}} when needed\n",
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "stub" });
+`,
+        "skills/bar/body.md": "# Bar\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/context/instructions.md"), "utf8");
+      assert.match(out, /use `foo:bar` when needed/);
+    },
+  );
+});
+
+test("compile fails when a context file references an unknown local skill", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{skill:foo:ghost}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /unknown skill id "foo:ghost"/);
+    },
+  );
+});
+
+test("compile preserves {{ext:...}} placeholders in context files", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{ext:superpowers:tdd}} for details\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/context/instructions.md"), "utf8");
+      assert.match(out, /see `superpowers:tdd` for details/);
+    },
+  );
+});
+
+test("compile resolves {{ref:...}} in a context file relative to the context file directory", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{ref:./sibling.md}}\n",
+        "context/sibling.md": "# Sibling\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/context/instructions.md"), "utf8");
+      assert.match(out, /see `\.\/sibling\.md`/);
+    },
+  );
+});
+
+test("compile fails when a context file has a broken {{ref:...}}", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{ref:./ghost.md}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /ref.*ghost\.md.*not found/);
+    },
+  );
+});
+
+test("compile leaves an undeclared .md file untouched (no substitution)", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "notes/scratch.md": "raw {{skill:foo:ghost}} unchanged\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/notes/scratch.md"), "utf8");
+      assert.equal(out, "raw {{skill:foo:ghost}} unchanged\n");
+    },
+  );
+});
+
+test("compile accepts hookRequires that point to existing local artifacts", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [
+    { event: "SessionStart", skill: "foo:bar" },
+    { event: "UserPromptSubmit", command: "foo:open" },
+    { event: "Stop", agent: "foo:rev" },
+  ],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      makeStubSkill(srcRoot, "foo", "bar");
+      makeStubCommand(srcRoot, "foo", "open");
+      makeStubAgent(srcRoot, "foo", "rev");
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/.claude-plugin/plugin.json")));
+    },
+  );
+});
+
+test("compile fails when a hookRequires skill slug is not a local skill", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [{ event: "SessionStart", skill: "foo:ghost" }],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /hookRequires.*foo:ghost.*not a local skill/i,
+      );
+    },
+  );
+});
+
+test("compile fails when a hookRequires command slug is not a local command", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [{ event: "UserPromptSubmit", command: "foo:ghost" }],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /hookRequires.*foo:ghost.*not a local command/i,
+      );
+    },
+  );
+});
+
+test("compile fails when a hookRequires agent slug is not a local agent", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  hookRequires: [{ event: "Stop", agent: "foo:ghost" }],
+});
+`,
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /hookRequires.*foo:ghost.*not a local agent/i,
+      );
+    },
+  );
+});
+
+test("compile accepts a cross-plugin {{skill:other:bar}} reference when `other` is in dependencies", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  dependencies: ["other"],
+});
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "see {{skill:other:tdd}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      // Other plugin lives in the same src tree
+      const otherDir = join(srcRoot, "plugins/other");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "PLUGIN.ts"),
+        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+      );
+      makeStubSkill(srcRoot, "other", "tdd");
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+    },
+  );
+});
+
+test("compile fails on a cross-plugin {{skill:other:bar}} when `other` is not in dependencies", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "see {{skill:other:tdd}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      const otherDir = join(srcRoot, "plugins/other");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "PLUGIN.ts"),
+        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+      );
+      makeStubSkill(srcRoot, "other", "tdd");
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /cross-plugin.*other.*dependencies/i,
+      );
+    },
+  );
+});
+
+test("compile fails on a cross-plugin {{command:other:open}} when `other` is not in dependencies", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "run {{command:other:open}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      const otherDir = join(srcRoot, "plugins/other");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "PLUGIN.ts"),
+        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+      );
+      makeStubCommand(srcRoot, "other", "open");
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /cross-plugin.*other.*dependencies/i,
+      );
+    },
+  );
+});
+
+test("compile permits same-plugin {{skill:foo:bar}} reference without any dependencies declared", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "no self-loop, but: {{skill:foo:other-skill}}\n",
+        "skills/other-skill/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "other-skill", description: "demo" });
+`,
+        "skills/other-skill/body.md": "# Other\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+    },
+  );
+});
+
+test("compile does NOT enforce dependencies on {{ext:other:tdd}} (ext-* crosses out of the marketplace)", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "external ref: {{ext:other:tdd}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+    },
+  );
 });

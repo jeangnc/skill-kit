@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { z } from "zod";
 
@@ -18,6 +18,32 @@ export interface InstalledSkill {
   readonly path: string;
 }
 
+export interface InstalledCommand {
+  readonly source: string;
+  readonly plugin: string;
+  readonly command: string;
+  readonly path: string;
+}
+
+export interface InstalledAgent {
+  readonly source: string;
+  readonly plugin: string;
+  readonly agent: string;
+  readonly path: string;
+}
+
+export interface InstalledArtifacts {
+  readonly skills: readonly InstalledSkill[];
+  readonly commands: readonly InstalledCommand[];
+  readonly agents: readonly InstalledAgent[];
+}
+
+export interface InstalledIndex {
+  readonly skills: ReadonlyMap<string, readonly InstalledSkill[]>;
+  readonly commands: ReadonlyMap<string, readonly InstalledCommand[]>;
+  readonly agents: ReadonlyMap<string, readonly InstalledAgent[]>;
+}
+
 export function defaultSources(): readonly PluginSource[] {
   const home = homedir();
   return [
@@ -31,39 +57,86 @@ const PLUGIN_MANIFEST_RELATIVE_PATHS = [
   ".codex-plugin/plugin.json",
 ] as const;
 
+export async function discoverInstalled(
+  sources: readonly PluginSource[],
+): Promise<InstalledArtifacts> {
+  const skills: InstalledSkill[] = [];
+  const commands: InstalledCommand[] = [];
+  const agents: InstalledAgent[] = [];
+  for (const source of sources) {
+    for await (const plugin of findPluginRoots(source.root)) {
+      for await (const skill of collectSkills(plugin.root)) {
+        skills.push({
+          source: source.name,
+          plugin: plugin.name,
+          skill: skill.name,
+          path: skill.path,
+        });
+      }
+      for await (const cmd of collectFlat(plugin.root, "commands")) {
+        commands.push({
+          source: source.name,
+          plugin: plugin.name,
+          command: cmd.name,
+          path: cmd.path,
+        });
+      }
+      for await (const agent of collectFlat(plugin.root, "agents")) {
+        agents.push({
+          source: source.name,
+          plugin: plugin.name,
+          agent: agent.name,
+          path: agent.path,
+        });
+      }
+    }
+  }
+  return { skills, commands, agents };
+}
+
+export function indexInstalled(artifacts: InstalledArtifacts): InstalledIndex {
+  return {
+    skills: groupBy(artifacts.skills, (s) => `${s.plugin}:${s.skill}`),
+    commands: groupBy(artifacts.commands, (c) => `${c.plugin}:${c.command}`),
+    agents: groupBy(artifacts.agents, (a) => `${a.plugin}:${a.agent}`),
+  };
+}
+
 export async function discoverInstalledSkills(
   sources: readonly PluginSource[],
 ): Promise<readonly InstalledSkill[]> {
-  const all: InstalledSkill[] = [];
-  for (const source of sources) {
-    for await (const skillFile of walkSkillFiles(source.root)) {
-      const pluginInfo = await findEnclosingPlugin(dirname(skillFile), source.root);
-      if (!pluginInfo) continue;
-      all.push({
-        source: source.name,
-        plugin: pluginInfo.name,
-        skill: basename(dirname(skillFile)),
-        path: skillFile,
-      });
-    }
-  }
-  return all;
+  const { skills } = await discoverInstalled(sources);
+  return skills;
 }
 
 export function indexSkills(
   skills: readonly InstalledSkill[],
 ): ReadonlyMap<string, readonly InstalledSkill[]> {
-  const index = new Map<string, InstalledSkill[]>();
-  for (const skill of skills) {
-    const key = `${skill.plugin}:${skill.skill}`;
-    const existing = index.get(key);
-    if (existing) existing.push(skill);
-    else index.set(key, [skill]);
-  }
-  return index;
+  return groupBy(skills, (s) => `${s.plugin}:${s.skill}`);
 }
 
-async function* walkSkillFiles(dir: string): AsyncGenerator<string> {
+function groupBy<T>(items: readonly T[], key: (t: T) => string): ReadonlyMap<string, readonly T[]> {
+  const result = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const existing = result.get(k);
+    if (existing) existing.push(item);
+    else result.set(k, [item]);
+  }
+  return result;
+}
+
+interface PluginRoot {
+  readonly name: string;
+  readonly root: string;
+}
+
+async function* findPluginRoots(dir: string): AsyncGenerator<PluginRoot> {
+  const name = await readPluginNameAt(dir);
+  if (name !== null) {
+    yield { name, root: dir };
+    return;
+  }
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -72,36 +145,57 @@ async function* walkSkillFiles(dir: string): AsyncGenerator<string> {
   }
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      yield* walkSkillFiles(full);
-    } else if (entry.isFile() && entry.name === "SKILL.md") {
-      yield full;
-    }
+    if (entry.isDirectory()) yield* findPluginRoots(join(dir, entry.name));
   }
 }
 
-interface EnclosingPlugin {
-  readonly name: string;
-  readonly root: string;
-}
-
-async function findEnclosingPlugin(
-  startDir: string,
-  sourceRoot: string,
-): Promise<EnclosingPlugin | null> {
-  let current = startDir;
-  while (current.startsWith(sourceRoot) && current !== sourceRoot) {
-    for (const relPath of PLUGIN_MANIFEST_RELATIVE_PATHS) {
-      const manifestPath = join(current, relPath);
-      const name = await readPluginName(manifestPath);
-      if (name) return { name, root: current };
-    }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
+async function readPluginNameAt(dir: string): Promise<string | null> {
+  for (const rel of PLUGIN_MANIFEST_RELATIVE_PATHS) {
+    const name = await readPluginName(join(dir, rel));
+    if (name) return name;
   }
   return null;
+}
+
+interface NamedFile {
+  readonly name: string;
+  readonly path: string;
+}
+
+async function* collectSkills(pluginRoot: string): AsyncGenerator<NamedFile> {
+  const skillsDir = join(pluginRoot, "skills");
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const skillFile = join(skillsDir, entry.name, "SKILL.md");
+    try {
+      await readFile(skillFile, "utf8");
+    } catch {
+      continue;
+    }
+    yield { name: entry.name, path: skillFile };
+  }
+}
+
+async function* collectFlat(pluginRoot: string, subdir: string): AsyncGenerator<NamedFile> {
+  const dir = join(pluginRoot, subdir);
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      yield { name: entry.name.slice(0, -3), path: join(dir, entry.name) };
+    }
+  }
 }
 
 async function readPluginName(manifestPath: string): Promise<string | null> {

@@ -6,7 +6,7 @@ import { defineCommand, runMain } from "citty";
 import { z } from "zod";
 
 import { build } from "./build.js";
-import { check, type ExtViolation } from "./check.js";
+import { check, type CheckMode, type ExtViolation } from "./check.js";
 import { install, uninstall, type Target } from "./install/index.js";
 import { lint } from "./lint.js";
 
@@ -28,6 +28,11 @@ function parseTargets(value: string | undefined): readonly Target[] | undefined 
     }
     return trimmed;
   });
+}
+
+function parseCheckMode(value: string): CheckMode {
+  if (value === "local" || value === "installed" || value === "all") return value;
+  throw new Error(`Unknown check mode "${value}". Valid: local, installed, all`);
 }
 
 const buildCmd = defineCommand({
@@ -81,14 +86,20 @@ const uninstallCmd = defineCommand({
 const checkCmd = defineCommand({
   meta: {
     name: "check",
-    description: "Validate ext: references against installed Claude/Codex plugins",
+    description: "Validate plugin references — local, installed (ext:), or both",
   },
   args: {
     src: { type: "string", default: "./src", description: "source root" },
+    mode: {
+      type: "string",
+      default: "installed",
+      description: "validation scope: local | installed | all",
+    },
     silent: { type: "boolean", default: false, description: "suppress non-error output" },
   },
   run: async ({ args }) => {
-    const result = await check({ srcRoot: args.src });
+    const mode = parseCheckMode(args.mode);
+    const result = await check({ srcRoot: args.src, mode });
     if (!args.silent) {
       const breakdown = result.indexedSources.map((s) => `${s.source}=${s.skillCount}`).join(", ");
       const total = result.indexedSources.reduce((acc, s) => acc + s.skillCount, 0);

@@ -16,7 +16,7 @@ async function withSandbox<T>(fn: (srcRoot: string, outRoot: string) => Promise<
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.ts"),
-    `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "bar", description: "fixture" });\n`,
+    `import { defineSkill } from "#harness-kit";\nexport default defineSkill({ name: "bar", description: "fixture" });\n`,
   );
   writeFileSync(join(skillDir, "body.md"), "# Bar\n");
   const pluginManifestDir = join(srcRoot, "plugins/foo/.claude-plugin");
@@ -32,7 +32,7 @@ async function withSandbox<T>(fn: (srcRoot: string, outRoot: string) => Promise<
     JSON.stringify(
       {
         name: "build-test",
-        owner: { name: "skill-kit-tests" },
+        owner: { name: "harness-kit-tests" },
         plugins: [{ name: "foo", source: "./plugins/foo" }],
       },
       null,

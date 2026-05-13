@@ -1,4 +1,4 @@
-# Skill Kit
+# Harness Kit
 
 Typed framework for authoring Claude Code skills. A skill is a single `SKILL.md` file — frontmatter plus a Markdown body. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects. A typed `SKILL.ts` form is also available when you want schema-checked metadata.
 
@@ -6,12 +6,12 @@ Typed framework for authoring Claude Code skills. A skill is a single `SKILL.md`
 
 - Node ≥ 20
 - A package manager (pnpm, npm, yarn — pnpm is what this repo uses)
-- The `claude` and/or `codex` CLIs on `$PATH` — only needed to run `skill-kit install` / `uninstall`
+- The `claude` and/or `codex` CLIs on `$PATH` — only needed to run `harness-kit install` / `uninstall`
 
 ## Install
 
 ```sh
-pnpm add @jean.gnc/skill-kit
+pnpm add @jean.gnc/harness-kit
 ```
 
 ## Authoring a skill
@@ -93,7 +93,7 @@ If you prefer typed metadata, use `SKILL.ts` + sibling `body.md` instead of a si
 
 ```ts
 // SKILL.ts
-import { defineSkill } from "@jean.gnc/skill-kit";
+import { defineSkill } from "@jean.gnc/harness-kit";
 
 export default defineSkill({
   name: "my-skill",
@@ -113,14 +113,14 @@ A skill folder must contain exactly one of `SKILL.md` or `SKILL.ts`. Both forms 
 
 ## Building
 
-The package ships a `skill-kit` CLI bin:
+The package ships a `harness-kit` CLI bin:
 
 ```sh
-skill-kit build      # compile typed sources to dist/
-skill-kit lint       # lint compiled markdown under dist/ with default rules
-skill-kit check      # validate {{ext:...}} refs against installed plugins
-skill-kit install    # install dist/ plugins into Claude + Codex
-skill-kit uninstall  # remove them
+harness-kit build      # compile typed sources to dist/
+harness-kit lint       # lint compiled markdown under dist/ with default rules
+harness-kit check      # validate {{ext:...}} refs against installed plugins
+harness-kit install    # install dist/ plugins into Claude + Codex
+harness-kit uninstall  # remove them
 ```
 
 In your `package.json`:
@@ -128,20 +128,20 @@ In your `package.json`:
 ```json
 {
   "scripts": {
-    "build": "skill-kit build",
-    "lint": "skill-kit build && skill-kit lint",
-    "install:plugins": "skill-kit install",
-    "uninstall:plugins": "skill-kit uninstall"
+    "build": "harness-kit build",
+    "lint": "harness-kit build && harness-kit lint",
+    "install:plugins": "harness-kit install",
+    "uninstall:plugins": "harness-kit uninstall"
   },
   "dependencies": {
-    "@jean.gnc/skill-kit": "latest"
+    "@jean.gnc/harness-kit": "latest"
   }
 }
 ```
 
 `build` defaults: `./src` → `./dist`. Override with `--src` and `--out`.
 
-`lint` defaults: `./dist`. Runs `markdownlint-cli2` against `plugins/**/*.md` with skill-kit's bundled rules — `MD013` (line length), `MD041` (first-line h1), and `MD033` (inline HTML) disabled; `MD024` scoped to `siblings_only`; `MD031` allows omitting blank lines around fences inside list items. Override with `--out`.
+`lint` defaults: `./dist`. Runs `markdownlint-cli2` against `plugins/**/*.md` with harness-kit's bundled rules — `MD013` (line length), `MD041` (first-line h1), and `MD033` (inline HTML) disabled; `MD024` scoped to `siblings_only`; `MD031` allows omitting blank lines around fences inside list items. Override with `--out`.
 
 `install` / `uninstall` defaults: reads `./dist`, targets both Claude and Codex. Filter with `--targets claude` or `--targets codex`. The marketplace name is read from `./dist/.claude-plugin/marketplace.json`, and the `claude` / `codex` CLIs must be on `$PATH`.
 
@@ -158,7 +158,7 @@ import {
   parsePlaceholders,
   substitute,
   checkCompanionFiles,
-} from "@jean.gnc/skill-kit";
+} from "@jean.gnc/harness-kit";
 
 await build({
   srcRoot: "./src",

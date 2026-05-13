@@ -27,7 +27,7 @@ async function withSkillSandbox<T>(
   return fn(skillDir).finally(() => rmSync(sandbox, { recursive: true, force: true }));
 }
 
-const SKILL_TS_BARE = `import { defineSkill } from "#skill-kit";
+const SKILL_TS_BARE = `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "fixture skill" });
 `;
 

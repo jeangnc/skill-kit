@@ -1,4 +1,4 @@
-import { defineSkill } from "#skill-kit";
+import { defineSkill } from "#harness-kit";
 
 export default defineSkill({
   name: "bar",

@@ -12,7 +12,7 @@ import {
 } from "./installed.js";
 
 async function withInstalledSourceFixture<T>(fn: (root: string) => Promise<T>): Promise<T> {
-  const root = mkdtempSync(join(tmpdir(), "skill-kit-sources-"));
+  const root = mkdtempSync(join(tmpdir(), "harness-kit-sources-"));
   return fn(root).finally(() => rmSync(root, { recursive: true, force: true }));
 }
 

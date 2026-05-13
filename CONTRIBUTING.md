@@ -12,8 +12,8 @@ Thanks for taking the time. This doc covers the dev workflow only.
 ## Setup
 
 ```sh
-git clone https://github.com/jeangnc/skill-kit.git
-cd skill-kit
+git clone https://github.com/jeangnc/harness-kit.git
+cd harness-kit
 pnpm install --frozen-lockfile
 ```
 
@@ -42,7 +42,7 @@ Production code lives in `src/`:
 - `install.ts` — install / uninstall for Claude + Codex
 - `placeholders.ts` — placeholder lexer + substitution
 - `invariants.ts` — companion-file parity check
-- `cli.ts` — `skill-kit` bin entry
+- `cli.ts` — `harness-kit` bin entry
 - `index.ts` — public exports
 
 Tests live in `tests/` (flat, 1:1 with source). Fixture trees live in `tests/fixtures/`.

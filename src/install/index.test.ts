@@ -49,7 +49,7 @@ async function withInstallFixture<T>(
     readonly codexHome: string;
   }) => Promise<T>,
 ): Promise<T> {
-  const sandbox = mkdtempSync(join(tmpdir(), "skill-kit-install-"));
+  const sandbox = mkdtempSync(join(tmpdir(), "harness-kit-install-"));
   const distRoot = join(sandbox, "dist");
   const claudeHome = join(sandbox, "claude");
   const codexHome = join(sandbox, "codex");
@@ -317,7 +317,7 @@ test("uninstall removes the codex marketplace cache and registration", async () 
 });
 
 test("install rejects a marketplace.json missing the required `name` field", async () => {
-  const sandbox = mkdtempSync(join(tmpdir(), "skill-kit-install-"));
+  const sandbox = mkdtempSync(join(tmpdir(), "harness-kit-install-"));
   const distRoot = join(sandbox, "dist");
   const claudeHome = join(sandbox, "claude");
   const codexHome = join(sandbox, "codex");
@@ -336,7 +336,7 @@ test("install rejects a marketplace.json missing the required `name` field", asy
 });
 
 test("install rejects a plugin.json missing the required `version` field", async () => {
-  const sandbox = mkdtempSync(join(tmpdir(), "skill-kit-install-"));
+  const sandbox = mkdtempSync(join(tmpdir(), "harness-kit-install-"));
   const distRoot = join(sandbox, "dist");
   const claudeHome = join(sandbox, "claude");
   const codexHome = join(sandbox, "codex");

@@ -1,17 +1,17 @@
 {
-  "name": "@jean.gnc/skill-kit",
+  "name": "@jean.gnc/harness-kit",
   "version": "0.5.0",
   "type": "module",
   "description": "Typed framework for authoring Claude Code skills: schema, placeholder engine, and compile pipeline.",
   "license": "MIT",
   "author": "Jean Gonçalves <jean.gnc@gmail.com>",
-  "homepage": "https://github.com/jeangnc/skill-kit#readme",
+  "homepage": "https://github.com/jeangnc/harness-kit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jeangnc/skill-kit.git"
+    "url": "git+https://github.com/jeangnc/harness-kit.git"
   },
   "bugs": {
-    "url": "https://github.com/jeangnc/skill-kit/issues"
+    "url": "https://github.com/jeangnc/harness-kit/issues"
   },
   "keywords": [
     "claude",
@@ -30,7 +30,7 @@
     }
   },
   "bin": {
-    "skill-kit": "./dist/cli.js"
+    "harness-kit": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -38,7 +38,7 @@
     "LICENSE"
   ],
   "imports": {
-    "#skill-kit": "./src/index.ts"
+    "#harness-kit": "./src/index.ts"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",

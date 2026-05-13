@@ -32,7 +32,7 @@ export interface ValidateReadmeOptions {
   readonly owner?: OwningPlugin;
 }
 
-const SENTINEL = "<!-- skill-kit:validate -->";
+const SENTINEL = "<!-- harness-kit:validate -->";
 const LINK_PATTERN = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const ABSOLUTE_URL_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
 

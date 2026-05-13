@@ -24,7 +24,7 @@ const withPluginRoot = join(fixturesRoot, "withPlugin");
 const mdSourceRoot = join(fixturesRoot, "mdSource");
 
 async function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
-  const dist = mkdtempSync(join(tmpdir(), "skill-kit-test-"));
+  const dist = mkdtempSync(join(tmpdir(), "harness-kit-test-"));
   return fn(dist).finally(() => rmSync(dist, { recursive: true, force: true }));
 }
 
@@ -67,7 +67,7 @@ function ensurePluginInMarketplace(srcRoot: string, pluginName: string): void {
     JSON.stringify(
       {
         name: "test-marketplace",
-        owner: { name: "skill-kit-tests" },
+        owner: { name: "harness-kit-tests" },
         plugins: [{ name: pluginName, source: `./plugins/${pluginName}` }],
       },
       null,
@@ -102,10 +102,10 @@ async function withSkillFixture<T>(
   options: SkillFixtureOptions,
   fn: (srcRoot: string, distRoot: string) => Promise<T>,
 ): Promise<T> {
-  // Sandbox lives inside the package so SKILL.ts can resolve `#skill-kit` subpath imports.
+  // Sandbox lives inside the package so SKILL.ts can resolve `#harness-kit` subpath imports.
   const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_"));
   const srcRoot = join(sandbox, "src");
-  const distRoot = mkdtempSync(join(tmpdir(), "skill-kit-dist-"));
+  const distRoot = mkdtempSync(join(tmpdir(), "harness-kit-dist-"));
   const skillDir = join(srcRoot, "plugins/foo/skills/bar");
   mkdirSync(skillDir, { recursive: true });
   if (options.skillSource !== undefined) {
@@ -139,7 +139,7 @@ async function withPluginFixture<T>(
 ): Promise<T> {
   const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_"));
   const srcRoot = join(sandbox, "src");
-  const distRoot = mkdtempSync(join(tmpdir(), "skill-kit-dist-"));
+  const distRoot = mkdtempSync(join(tmpdir(), "harness-kit-dist-"));
   const pluginDir = join(srcRoot, "plugins", options.pluginName ?? "foo");
   mkdirSync(pluginDir, { recursive: true });
   writeFileSync(join(pluginDir, "PLUGIN.ts"), options.pluginSource);
@@ -160,7 +160,7 @@ function makeStubSkill(srcRoot: string, plugin: string, name: string): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, "SKILL.ts"),
-    `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "${name}", description: "stub" });\n`,
+    `import { defineSkill } from "#harness-kit";\nexport default defineSkill({ name: "${name}", description: "stub" });\n`,
   );
   writeFileSync(join(dir, "body.md"), `# ${name}\n`);
   ensurePluginInMarketplace(srcRoot, plugin);
@@ -186,11 +186,11 @@ function makeStubAgent(srcRoot: string, plugin: string, name: string): void {
   ensurePluginInMarketplace(srcRoot, plugin);
 }
 
-const SKILL_TS_BARE = `import { defineSkill } from "#skill-kit";
+const SKILL_TS_BARE = `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "fixture skill" });
 `;
 
-const SKILL_TS_WITH_COMPANION = `import { defineSkill } from "#skill-kit";
+const SKILL_TS_WITH_COMPANION = `import { defineSkill } from "#harness-kit";
 export default defineSkill({
   name: "bar",
   description: "fixture skill with companions",
@@ -404,7 +404,7 @@ test("compile fails on unknown placeholder prefix", async () => {
 });
 
 test("compile rejects a default export that violates SkillSchema (e.g. defineSkill is bypassed)", async () => {
-  const SKILL_TS_BYPASSES_DEFINE_SKILL = `import type { Skill } from "#skill-kit";
+  const SKILL_TS_BYPASSES_DEFINE_SKILL = `import type { Skill } from "#harness-kit";
 export default { name: "bar", description: "line one\\nline two" } as Skill;
 `;
   await withSkillFixture(
@@ -458,7 +458,7 @@ test("compile does not emit context into the legacy plugin.json", async () => {
 test("compile rejects collision when both PLUGIN.ts and .claude-plugin/plugin.json exist", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
@@ -478,7 +478,7 @@ test("compile fails when PLUGIN.ts name does not match the plugin folder", async
   await withPluginFixture(
     {
       pluginName: "foo",
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "wrong", version: "1.0.0", description: "demo" });
 `,
     },
@@ -494,7 +494,7 @@ export default definePlugin({ name: "wrong", version: "1.0.0", description: "dem
 test("compile fails when a context entry references a missing file", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -515,7 +515,7 @@ export default definePlugin({
 test("compile accepts a plugin with context whose files exist", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -538,12 +538,12 @@ export default definePlugin({
 test("compile substitutes {{ref:path}} for a file that exists relative to the skill", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
         "shared/linear-ids.md": "# Linear IDs\n",
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "fixture" });
 `,
         "skills/bar/body.md": "see {{ref:../../shared/linear-ids.md}} for the map\n",
@@ -560,11 +560,11 @@ export default defineSkill({ name: "bar", description: "fixture" });
 test("compile fails when {{ref:path}} resolves to a missing file", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "fixture" });
 `,
         "skills/bar/body.md": "see {{ref:../../shared/missing.md}}\n",
@@ -579,7 +579,7 @@ export default defineSkill({ name: "bar", description: "fixture" });
 test("compile preserves the executable bit on hook scripts copied through dist", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: { "hooks/example.sh": "#!/usr/bin/env bash\necho hi\n" },
@@ -1007,7 +1007,7 @@ test("compile fails when {{ext-agent:...}} value does not match <plugin>:<agent>
 test("compile substitutes placeholders in context files declared on the plugin", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1017,7 +1017,7 @@ export default definePlugin({
 `,
       extraFiles: {
         "context/instructions.md": "use {{skill:foo:bar}} when needed\n",
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "stub" });
 `,
         "skills/bar/body.md": "# Bar\n",
@@ -1034,7 +1034,7 @@ export default defineSkill({ name: "bar", description: "stub" });
 test("compile fails when a context file references an unknown local skill", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1055,7 +1055,7 @@ export default definePlugin({
 test("compile preserves {{ext:...}} placeholders in context files", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1078,7 +1078,7 @@ export default definePlugin({
 test("compile resolves {{ref:...}} in a context file relative to the context file directory", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1102,7 +1102,7 @@ export default definePlugin({
 test("compile fails when a context file has a broken {{ref:...}}", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1123,7 +1123,7 @@ export default definePlugin({
 test("compile leaves an undeclared .md file untouched (no substitution)", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
@@ -1141,7 +1141,7 @@ export default definePlugin({ name: "foo", version: "1.0.0", description: "demo"
 test("compile accepts hookRequires that point to existing local artifacts", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1167,7 +1167,7 @@ export default definePlugin({
 test("compile fails when a hookRequires skill slug is not a local skill", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1188,7 +1188,7 @@ export default definePlugin({
 test("compile fails when a hookRequires command slug is not a local command", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1209,7 +1209,7 @@ export default definePlugin({
 test("compile fails when a hookRequires agent slug is not a local agent", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1230,7 +1230,7 @@ export default definePlugin({
 test("compile accepts a cross-plugin {{skill:other:bar}} reference when `other` is in dependencies", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({
   name: "foo",
   version: "1.0.0",
@@ -1239,7 +1239,7 @@ export default definePlugin({
 });
 `,
       extraFiles: {
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "demo" });
 `,
         "skills/bar/body.md": "see {{skill:other:tdd}}\n",
@@ -1251,7 +1251,7 @@ export default defineSkill({ name: "bar", description: "demo" });
       mkdirSync(otherDir, { recursive: true });
       writeFileSync(
         join(otherDir, "PLUGIN.ts"),
-        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+        `import { definePlugin } from "#harness-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
       );
       makeStubSkill(srcRoot, "other", "tdd");
       await compile({ srcRoot, outRoot: distRoot });
@@ -1263,11 +1263,11 @@ export default defineSkill({ name: "bar", description: "demo" });
 test("compile fails on a cross-plugin {{skill:other:bar}} when `other` is not in dependencies", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "demo" });
 `,
         "skills/bar/body.md": "see {{skill:other:tdd}}\n",
@@ -1278,7 +1278,7 @@ export default defineSkill({ name: "bar", description: "demo" });
       mkdirSync(otherDir, { recursive: true });
       writeFileSync(
         join(otherDir, "PLUGIN.ts"),
-        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+        `import { definePlugin } from "#harness-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
       );
       makeStubSkill(srcRoot, "other", "tdd");
       await assert.rejects(
@@ -1292,11 +1292,11 @@ export default defineSkill({ name: "bar", description: "demo" });
 test("compile fails on a cross-plugin {{command:other:open}} when `other` is not in dependencies", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "demo" });
 `,
         "skills/bar/body.md": "run {{command:other:open}}\n",
@@ -1307,7 +1307,7 @@ export default defineSkill({ name: "bar", description: "demo" });
       mkdirSync(otherDir, { recursive: true });
       writeFileSync(
         join(otherDir, "PLUGIN.ts"),
-        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+        `import { definePlugin } from "#harness-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
       );
       makeStubCommand(srcRoot, "other", "open");
       await assert.rejects(
@@ -1321,15 +1321,15 @@ export default defineSkill({ name: "bar", description: "demo" });
 test("compile permits same-plugin {{skill:foo:bar}} reference without any dependencies declared", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "demo" });
 `,
         "skills/bar/body.md": "no self-loop, but: {{skill:foo:other-skill}}\n",
-        "skills/other-skill/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/other-skill/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "other-skill", description: "demo" });
 `,
         "skills/other-skill/body.md": "# Other\n",
@@ -1345,11 +1345,11 @@ export default defineSkill({ name: "other-skill", description: "demo" });
 test("compile does NOT enforce dependencies on {{ext:other:tdd}} (ext-* crosses out of the marketplace)", async () => {
   await withPluginFixture(
     {
-      pluginSource: `import { definePlugin } from "#skill-kit";
+      pluginSource: `import { definePlugin } from "#harness-kit";
 export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
 `,
       extraFiles: {
-        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#harness-kit";
 export default defineSkill({ name: "bar", description: "demo" });
 `,
         "skills/bar/body.md": "external ref: {{ext:other:tdd}}\n",

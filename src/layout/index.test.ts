@@ -42,7 +42,7 @@ async function withFixture<T>(
   options: FixtureOptions,
   fn: (srcRoot: string) => Promise<T>,
 ): Promise<T> {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(
@@ -137,7 +137,7 @@ test("loadLayout honors metadata.pluginRoot with a bare-name source", async () =
 });
 
 test("loadLayout resolves a self-plugin marketplace (source: './')", async () => {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(
@@ -196,7 +196,7 @@ test("loadLayout honors plugin.json commands/agents/hooks path overrides", async
 });
 
 test("loadLayout errors when marketplace.json is missing", async () => {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     const result = await loadLayout(srcRoot);
     assert.equal(result.ok, false);
@@ -208,7 +208,7 @@ test("loadLayout errors when marketplace.json is missing", async () => {
 });
 
 test("loadLayout errors when marketplace.json fails schema validation", async () => {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(join(srcRoot, ".claude-plugin/marketplace.json"), JSON.stringify({ name: "x" }));
@@ -222,7 +222,7 @@ test("loadLayout errors when marketplace.json fails schema validation", async ()
 });
 
 test("loadLayout errors when a relative-source plugin directory is missing", async () => {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(
@@ -261,7 +261,7 @@ test("loadLayout errors when both PLUGIN.ts and .claude-plugin/plugin.json exist
 });
 
 test("loadLayout errors when a plugin folder has no manifest", async () => {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(
@@ -300,7 +300,7 @@ test("loadLayout errors when plugin.json name does not match the marketplace ent
 });
 
 test("loadLayout carries non-relative plugin sources as opaque entries", async () => {
-  const srcRoot = mkdtempSync(join(tmpdir(), "skill-kit-layout-"));
+  const srcRoot = mkdtempSync(join(tmpdir(), "harness-kit-layout-"));
   try {
     mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(

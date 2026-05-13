@@ -1,4 +1,4 @@
-import { definePlugin } from "#skill-kit";
+import { definePlugin } from "#harness-kit";
 
 export default definePlugin({
   name: "foo",

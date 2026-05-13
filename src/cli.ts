@@ -129,7 +129,7 @@ function formatViolation(v: ExtViolation): string {
 const lintCmd = defineCommand({
   meta: {
     name: "lint",
-    description: "Lint compiled markdown under dist/ with skill-kit's default rules",
+    description: "Lint compiled markdown under dist/ with harness-kit's default rules",
   },
   args: {
     out: { type: "string", default: "./dist", description: "output root" },
@@ -143,7 +143,7 @@ const lintCmd = defineCommand({
 
 const main = defineCommand({
   meta: {
-    name: "skill-kit",
+    name: "harness-kit",
     version: pkg.version,
     description: "Typed framework for authoring Claude Code skills.",
   },

@@ -23,10 +23,10 @@ The `release.yml` workflow fires on any `v*` tag push:
 
 Configure once on npmjs.com — no token to manage or rotate.
 
-1. https://www.npmjs.com/package/@jean.gnc/skill-kit/access → "Trusted publishers" → "Add"
+1. https://www.npmjs.com/package/@jean.gnc/harness-kit/access → "Trusted publishers" → "Add"
 2. Provider: **GitHub Actions**
 3. Organization: `jeangnc`
-4. Repository: `skill-kit`
+4. Repository: `harness-kit`
 5. Workflow filename: `release.yml`
 6. Environment name: *(leave blank)*
 

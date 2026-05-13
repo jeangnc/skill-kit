@@ -16,7 +16,7 @@ async function withReadme<T>(
   fixture: ReadmeFixture,
   fn: (filePath: string, dir: string) => Promise<T>,
 ): Promise<T> {
-  const dir = mkdtempSync(join(tmpdir(), "skill-kit-readme-"));
+  const dir = mkdtempSync(join(tmpdir(), "harness-kit-readme-"));
   const filePath = join(dir, fixture.filename ?? "README.md");
   writeFileSync(filePath, fixture.content);
   for (const [rel, content] of Object.entries(fixture.siblings ?? {})) {
@@ -46,7 +46,7 @@ test("validateReadme returns no violations when the sentinel is absent, even wit
 test("validateReadme returns no violations for a sentinel-bearing README with a valid {{skill:...}}", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee {{skill:foo:bar}} for details\n",
+      content: "<!-- harness-kit:validate -->\nsee {{skill:foo:bar}} for details\n",
     },
     async (filePath) => {
       const violations = await validateReadme({
@@ -65,7 +65,7 @@ test("validateReadme returns no violations for a sentinel-bearing README with a 
 test("validateReadme reports an unknown {{skill:...}} id when the sentinel is present", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee {{skill:foo:ghost}}\n",
+      content: "<!-- harness-kit:validate -->\nsee {{skill:foo:ghost}}\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -79,7 +79,7 @@ test("validateReadme reports an unknown {{skill:...}} id when the sentinel is pr
 test("validateReadme reports a malformed {{ext:...}} placeholder", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee {{ext:lonelyid}}\n",
+      content: "<!-- harness-kit:validate -->\nsee {{ext:lonelyid}}\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -93,7 +93,7 @@ test("validateReadme reports a malformed {{ext:...}} placeholder", async () => {
 test("validateReadme accepts a relative markdown link to a file that exists", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee [docs](./docs.md) for more\n",
+      content: "<!-- harness-kit:validate -->\nsee [docs](./docs.md) for more\n",
       siblings: { "docs.md": "# Docs\n" },
     },
     async (filePath) => {
@@ -106,7 +106,7 @@ test("validateReadme accepts a relative markdown link to a file that exists", as
 test("validateReadme reports a broken relative markdown link", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee [docs](./ghost.md)\n",
+      content: "<!-- harness-kit:validate -->\nsee [docs](./ghost.md)\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -120,7 +120,7 @@ test("validateReadme reports a broken relative markdown link", async () => {
 test("validateReadme reports line:col into the README source", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\n\nline three\nsee [broken](./ghost.md) here\n",
+      content: "<!-- harness-kit:validate -->\n\nline three\nsee [broken](./ghost.md) here\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -135,7 +135,7 @@ test("validateReadme ignores absolute URLs in markdown links", async () => {
   await withReadme(
     {
       content:
-        "<!-- skill-kit:validate -->\nsee [site](https://example.com) and [mail](mailto:x@y.z)\n",
+        "<!-- harness-kit:validate -->\nsee [site](https://example.com) and [mail](mailto:x@y.z)\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -147,7 +147,7 @@ test("validateReadme ignores absolute URLs in markdown links", async () => {
 test("validateReadme ignores in-page anchor links", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee [top](#title)\n",
+      content: "<!-- harness-kit:validate -->\nsee [top](#title)\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -159,7 +159,7 @@ test("validateReadme ignores in-page anchor links", async () => {
 test("validateReadme strips a trailing #anchor before resolving a relative link", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee [docs](./docs.md#section)\n",
+      content: "<!-- harness-kit:validate -->\nsee [docs](./docs.md#section)\n",
       siblings: { "docs.md": "# Docs\n" },
     },
     async (filePath) => {
@@ -172,7 +172,7 @@ test("validateReadme strips a trailing #anchor before resolving a relative link"
 test("validateReadme validates image links the same as text links", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\n![logo](./missing.png)\n",
+      content: "<!-- harness-kit:validate -->\n![logo](./missing.png)\n",
     },
     async (filePath) => {
       const violations = await validateReadme({ filePath, localIds: emptyLocalIds });
@@ -185,7 +185,7 @@ test("validateReadme validates image links the same as text links", async () => 
 test("validateReadme treats a cross-plugin {{skill:other:foo}} as a violation when owner has no dependencies", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee {{skill:other:foo}}\n",
+      content: "<!-- harness-kit:validate -->\nsee {{skill:other:foo}}\n",
     },
     async (filePath) => {
       const violations = await validateReadme({
@@ -206,7 +206,7 @@ test("validateReadme treats a cross-plugin {{skill:other:foo}} as a violation wh
 test("validateReadme accepts a cross-plugin {{skill:other:foo}} when owner declares the dependency", async () => {
   await withReadme(
     {
-      content: "<!-- skill-kit:validate -->\nsee {{skill:other:foo}}\n",
+      content: "<!-- harness-kit:validate -->\nsee {{skill:other:foo}}\n",
     },
     async (filePath) => {
       const violations = await validateReadme({

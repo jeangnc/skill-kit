@@ -1,6 +1,6 @@
 {
   "name": "companion-render-marketplace",
-  "owner": { "name": "skill-kit-tests" },
+  "owner": { "name": "harness-kit-tests" },
   "metadata": { "pluginRoot": "./plugins", "version": "0.0.1" },
   "plugins": [{ "name": "foo", "source": "./plugins/foo" }]
 }

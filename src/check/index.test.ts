@@ -113,7 +113,7 @@ async function withLocalSrcFixture<T>(
     JSON.stringify(
       {
         name: "check-local-test",
-        owner: { name: "skill-kit-tests" },
+        owner: { name: "harness-kit-tests" },
         plugins: [...pluginNames].map((p) => ({ name: p, source: `./plugins/${p}` })),
       },
       null,
@@ -134,7 +134,7 @@ async function withInstalledFixture<T>(
   installed: readonly InstalledArtifact[],
   fn: (sources: readonly PluginSource[]) => Promise<T>,
 ): Promise<T> {
-  const root = mkdtempSync(join(tmpdir(), "skill-kit-check-installed-"));
+  const root = mkdtempSync(join(tmpdir(), "harness-kit-check-installed-"));
   for (const item of installed) {
     const pluginRoot = join(root, "marketplace", item.plugin);
     mkdirSync(join(pluginRoot, ".claude-plugin"), { recursive: true });
@@ -273,7 +273,7 @@ test("check works with TS-authored skills (body in body.md)", async () => {
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(
     join(skillDir, "SKILL.ts"),
-    `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "bar", description: "x" });\n`,
+    `import { defineSkill } from "#harness-kit";\nexport default defineSkill({ name: "bar", description: "x" });\n`,
   );
   writeFileSync(join(skillDir, "body.md"), "see {{ext:nope:missing}}\n");
   try {

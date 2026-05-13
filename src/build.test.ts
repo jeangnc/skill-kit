@@ -19,6 +19,26 @@ async function withSandbox<T>(fn: (srcRoot: string, outRoot: string) => Promise<
     `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "bar", description: "fixture" });\n`,
   );
   writeFileSync(join(skillDir, "body.md"), "# Bar\n");
+  const pluginManifestDir = join(srcRoot, "plugins/foo/.claude-plugin");
+  mkdirSync(pluginManifestDir, { recursive: true });
+  writeFileSync(
+    join(pluginManifestDir, "plugin.json"),
+    JSON.stringify({ name: "foo", version: "0.0.1", description: "fixture" }, null, 2) + "\n",
+  );
+  const marketplaceDir = join(srcRoot, ".claude-plugin");
+  mkdirSync(marketplaceDir, { recursive: true });
+  writeFileSync(
+    join(marketplaceDir, "marketplace.json"),
+    JSON.stringify(
+      {
+        name: "build-test",
+        owner: { name: "skill-kit-tests" },
+        plugins: [{ name: "foo", source: "./plugins/foo" }],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
   return fn(srcRoot, outRoot).finally(() => rmSync(sandbox, { recursive: true, force: true }));
 }
 

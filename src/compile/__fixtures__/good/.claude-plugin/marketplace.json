@@ -1,5 +1,6 @@
 {
   "name": "test-marketplace",
+  "owner": { "name": "skill-kit-tests" },
   "metadata": { "pluginRoot": "./plugins", "version": "0.0.1" },
   "plugins": [{ "name": "foo", "source": "./plugins/foo" }]
 }

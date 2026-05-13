@@ -28,6 +28,69 @@ async function withTempDist<T>(fn: (dist: string) => Promise<T>): Promise<T> {
   return fn(dist).finally(() => rmSync(dist, { recursive: true, force: true }));
 }
 
+function ensurePluginInMarketplace(srcRoot: string, pluginName: string): void {
+  const pluginDir = join(srcRoot, "plugins", pluginName);
+  mkdirSync(pluginDir, { recursive: true });
+  const pluginTsPath = join(pluginDir, "PLUGIN.ts");
+  const pluginJsonPath = join(pluginDir, ".claude-plugin/plugin.json");
+  if (!existsSync(pluginTsPath) && !existsSync(pluginJsonPath)) {
+    mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      pluginJsonPath,
+      JSON.stringify(
+        { name: pluginName, version: "0.0.1", description: "test fixture plugin" },
+        null,
+        2,
+      ) + "\n",
+    );
+  }
+
+  const marketplacePath = join(srcRoot, ".claude-plugin/marketplace.json");
+  mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
+  const existing = existsSync(marketplacePath)
+    ? (JSON.parse(readFileSync(marketplacePath, "utf8")) as {
+        plugins: Array<{ name: string; source: string }>;
+      })
+    : null;
+  if (existing) {
+    if (existing.plugins.some((p) => p.name === pluginName)) return;
+    existing.plugins.push({ name: pluginName, source: `./plugins/${pluginName}` });
+    writeFileSync(marketplacePath, JSON.stringify(existing, null, 2) + "\n");
+    for (const peer of existing.plugins) {
+      if (peer.name === pluginName) continue;
+      addDependency(srcRoot, peer.name, pluginName);
+    }
+    return;
+  }
+  writeFileSync(
+    marketplacePath,
+    JSON.stringify(
+      {
+        name: "test-marketplace",
+        owner: { name: "skill-kit-tests" },
+        plugins: [{ name: pluginName, source: `./plugins/${pluginName}` }],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+}
+
+function addDependency(srcRoot: string, plugin: string, dependency: string): void {
+  const pluginJsonPath = join(srcRoot, "plugins", plugin, ".claude-plugin/plugin.json");
+  if (!existsSync(pluginJsonPath)) return;
+  const manifest = JSON.parse(readFileSync(pluginJsonPath, "utf8")) as {
+    dependencies?: string[];
+  };
+  const deps = new Set(manifest.dependencies ?? []);
+  if (deps.has(dependency)) return;
+  deps.add(dependency);
+  writeFileSync(
+    pluginJsonPath,
+    JSON.stringify({ ...manifest, dependencies: [...deps] }, null, 2) + "\n",
+  );
+}
+
 interface SkillFixtureOptions {
   readonly skillSource?: string;
   readonly skillMd?: string;
@@ -57,6 +120,7 @@ async function withSkillFixture<T>(
   for (const [name, content] of Object.entries(options.companionFiles ?? {})) {
     writeFileSync(join(skillDir, name), content);
   }
+  ensurePluginInMarketplace(srcRoot, "foo");
   return fn(srcRoot, distRoot).finally(() => {
     rmSync(sandbox, { recursive: true, force: true });
     rmSync(distRoot, { recursive: true, force: true });
@@ -84,6 +148,7 @@ async function withPluginFixture<T>(
     mkdirSync(join(target, ".."), { recursive: true });
     writeFileSync(target, content);
   }
+  ensurePluginInMarketplace(srcRoot, options.pluginName ?? "foo");
   return fn(srcRoot, distRoot).finally(() => {
     rmSync(sandbox, { recursive: true, force: true });
     rmSync(distRoot, { recursive: true, force: true });
@@ -98,6 +163,7 @@ function makeStubSkill(srcRoot: string, plugin: string, name: string): void {
     `import { defineSkill } from "#skill-kit";\nexport default defineSkill({ name: "${name}", description: "stub" });\n`,
   );
   writeFileSync(join(dir, "body.md"), `# ${name}\n`);
+  ensurePluginInMarketplace(srcRoot, plugin);
 }
 
 function makeStubCommand(srcRoot: string, plugin: string, name: string): void {
@@ -107,6 +173,7 @@ function makeStubCommand(srcRoot: string, plugin: string, name: string): void {
     join(dir, `${name}.md`),
     `---\nname: ${name}\ndescription: stub command\n---\n\n# ${name}\n`,
   );
+  ensurePluginInMarketplace(srcRoot, plugin);
 }
 
 function makeStubAgent(srcRoot: string, plugin: string, name: string): void {
@@ -116,6 +183,7 @@ function makeStubAgent(srcRoot: string, plugin: string, name: string): void {
     join(dir, `${name}.md`),
     `---\nname: ${name}\ndescription: stub agent\n---\n\n# ${name}\n`,
   );
+  ensurePluginInMarketplace(srcRoot, plugin);
 }
 
 const SKILL_TS_BARE = `import { defineSkill } from "#skill-kit";
@@ -670,10 +738,10 @@ test("compile renders {{skill:...}} from a plain SKILL.md to a TS-authored sibli
 test("compile discovers a SKILL.md skill as a local skill (visible to {{skill:...}} from elsewhere)", async () => {
   const skillMd = `---\nname: bar\ndescription: x\n---\n\nsee {{skill:other:peer}}\n`;
   await withSkillFixture({ skillMd }, async (srcRoot, distRoot) => {
-    // peer is also authored as SKILL.md — must be discovered
     const peerDir = join(srcRoot, "plugins/other/skills/peer");
     mkdirSync(peerDir, { recursive: true });
     writeFileSync(join(peerDir, "SKILL.md"), `---\nname: peer\ndescription: peer\n---\n\n# Peer\n`);
+    ensurePluginInMarketplace(srcRoot, "other");
     await compile({ srcRoot, outRoot: distRoot });
     const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
     assert.match(out, /see `other:peer`/);

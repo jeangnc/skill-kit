@@ -12,7 +12,6 @@ import {
   type Skill,
 } from "../skill/index.js";
 import { expandIncludes, formatIncludeError } from "../skill/includes.js";
-import { type Plugin } from "../plugin/index.js";
 import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders/index.js";
 
 import { pathExists, throwInvariantViolations } from "./discovery.js";
@@ -34,36 +33,20 @@ export interface OwningPlugin {
 
 export type BodyInvariant = (body: string) => string[];
 
-export async function emitPluginManifests(
-  plugins: ReadonlyMap<string, Plugin>,
-  outRoot: string,
-): Promise<void> {
-  for (const [name, plugin] of plugins) {
-    const outManifest = join(outRoot, "plugins", name, ".claude-plugin/plugin.json");
-    await mkdir(dirname(outManifest), { recursive: true });
-    await writeFile(outManifest, JSON.stringify(toLegacyPluginJson(plugin), null, 2) + "\n");
-  }
+export interface CompileTreeOptions {
+  readonly srcRoot: string;
+  readonly outRoot: string;
+  readonly localIds: LocalIds;
+  readonly bodyInvariants: readonly BodyInvariant[];
+  readonly contextFiles?: ReadonlySet<string>;
+  readonly owner: OwningPlugin;
 }
 
-type LegacyPluginManifest = Omit<Plugin, "context">;
-
-function toLegacyPluginJson(plugin: Plugin): LegacyPluginManifest {
-  const { context, ...legacy } = plugin;
-  return legacy;
-}
-
-export async function compileTree(
-  srcRoot: string,
-  outRoot: string,
-  localIds: LocalIds,
-  bodyInvariants: readonly BodyInvariant[],
-  contextFiles: ReadonlySet<string> = new Set(),
-  pluginsByName: ReadonlyMap<string, Plugin> = new Map(),
-): Promise<void> {
+export async function compileTree(options: CompileTreeOptions): Promise<void> {
+  const { srcRoot, outRoot, localIds, bodyInvariants, owner } = options;
+  const contextFiles = options.contextFiles ?? new Set<string>();
   const skillFolders = await collectSkillFolders(srcRoot);
   const handledAbsPaths = new Set<string>();
-  const ownerFor = (absPath: string): OwningPlugin | null =>
-    resolveOwner(srcRoot, absPath, pluginsByName);
 
   for await (const absPath of walk(srcRoot)) {
     if (!SKILL_SOURCE_FILENAMES.has(basename(absPath))) continue;
@@ -75,14 +58,14 @@ export async function compileTree(
       companions,
       localIds,
       bodyInvariants,
-      ownerFor(absPath),
+      owner,
     );
     for (const p of result.resolvedIncludes) handledAbsPaths.add(p);
   }
 
   for (const absPath of contextFiles) {
     const target = join(outRoot, relative(srcRoot, absPath));
-    await emitContextFile(absPath, target, localIds, ownerFor(absPath));
+    await emitContextFile(absPath, target, localIds, owner);
     handledAbsPaths.add(absPath);
   }
 
@@ -103,7 +86,7 @@ async function emitContextFile(
   srcPath: string,
   outPath: string,
   localIds: LocalIds,
-  owner: OwningPlugin | null,
+  owner: OwningPlugin,
 ): Promise<void> {
   const raw = await readFile(srcPath, "utf8");
   const dir = dirname(srcPath);
@@ -120,20 +103,6 @@ async function emitContextFile(
   }
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, result.rendered);
-}
-
-function resolveOwner(
-  srcRoot: string,
-  absPath: string,
-  pluginsByName: ReadonlyMap<string, Plugin>,
-): OwningPlugin | null {
-  const rel = relative(srcRoot, absPath);
-  if (rel.startsWith("..")) return null;
-  const [first] = rel.split("/");
-  if (!first) return null;
-  const plugin = pluginsByName.get(first);
-  if (!plugin) return null;
-  return { name: plugin.name, dependencies: new Set(plugin.dependencies ?? []) };
 }
 
 async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[]>> {
@@ -162,7 +131,7 @@ async function emitSkill(
   siblings: readonly string[],
   localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
-  owner: OwningPlugin | null,
+  owner: OwningPlugin,
 ): Promise<EmitResult> {
   const skillDir = dirname(srcPath);
   const loaded = await loadSkill(skillDir);
@@ -242,7 +211,7 @@ function buildRegistry(
   localIds: LocalIds,
   existingRefs: ReadonlySet<string>,
   skillDir: string,
-  owner: OwningPlugin | null,
+  owner: OwningPlugin,
 ): ValidatorRegistry {
   return {
     skill: (value) => {
@@ -334,8 +303,7 @@ function bareName(id: string): string {
   return idx === -1 ? id : id.slice(idx + 1);
 }
 
-function crossPluginViolation(id: string, owner: OwningPlugin | null): string | null {
-  if (!owner) return null;
+function crossPluginViolation(id: string, owner: OwningPlugin): string | null {
   const idx = id.indexOf(":");
   if (idx === -1) return null;
   const otherPlugin = id.slice(0, idx);

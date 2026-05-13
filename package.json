@@ -2,7 +2,7 @@
   "name": "@jean.gnc/harness-kit",
   "version": "0.5.1",
   "type": "module",
-  "description": "Typed framework for authoring Claude Code skills: schema, placeholder engine, and compile pipeline.",
+  "description": "Build your own multi-agent harness: typed toolkit for authoring plugins (skills, agents, commands, hooks) and shipping them to Claude Code and Codex from a single source tree.",
   "license": "MIT",
   "author": "Jean Gonçalves <jean.gnc@gmail.com>",
   "homepage": "https://github.com/jeangnc/harness-kit#readme",
@@ -16,8 +16,13 @@
   "keywords": [
     "claude",
     "claude-code",
-    "skills",
+    "codex",
+    "agent",
+    "multi-agent",
+    "harness",
+    "marketplace",
     "plugin",
+    "skills",
     "markdown",
     "typescript"
   ],

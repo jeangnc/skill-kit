@@ -1,6 +1,8 @@
 # Harness Kit
 
-Typed framework for authoring Claude Code skills. A skill is a single `SKILL.md` file — frontmatter plus a Markdown body. The compiler validates references, expands placeholders, and emits the `SKILL.md` files Claude Code expects. A typed `SKILL.ts` form is also available when you want schema-checked metadata.
+Build your own multi-agent harness. `harness-kit` is a typed toolkit for assembling a marketplace of plugins — skills, agents, commands, hooks — and shipping it to Claude Code and/or Codex from a single source tree.
+
+You write plugins once, in a shape that round-trips through the upstream Claude Code marketplace schema. The compiler validates cross-references, expands placeholders, and emits the per-vendor manifests each CLI expects. The installer wires the result into the local Claude/Codex caches.
 
 ## Requirements
 
@@ -14,9 +16,9 @@ Typed framework for authoring Claude Code skills. A skill is a single `SKILL.md`
 pnpm add @jean.gnc/harness-kit
 ```
 
-## Authoring a skill
+## Source layout
 
-Lay your sources out as a marketplace of plugins, each containing skills:
+A harness is a marketplace of plugins. Each plugin can carry skills, agents, commands, hooks, and MCP servers. Manifests are co-located per vendor so the same source compiles to both targets:
 
 ```
 src/
@@ -30,7 +32,14 @@ src/
         <skill>/
           SKILL.md
           <companion>.md         # optional
+      agents/    <agent>.md       # optional
+      commands/  <command>.md     # optional
+      hooks/     <hook>.json      # optional
 ```
+
+The marketplace and plugin manifests accept the full upstream Claude Code shape — `homepage`, `repository`, `allowCrossMarketplaceDependenciesOn`, object-form dependencies (`{ name, marketplace }`), and any other documented fields pass through unchanged. Existing Claude marketplaces drop in without rewriting their manifests.
+
+## Authoring a skill
 
 Skills are auto-discovered by walking `<srcRoot>/plugins/<plugin>/skills/<name>/SKILL.md`. The `name` field in frontmatter must match the skill's folder name.
 
@@ -111,7 +120,7 @@ For type safety conventions, see {{skill:dev-tools:typescript}}.
 
 A skill folder must contain exactly one of `SKILL.md` or `SKILL.ts`. Both forms run through the same placeholder pipeline and produce identical `dist/` output.
 
-## Building
+## CLI
 
 The package ships a `harness-kit` CLI bin:
 
@@ -145,7 +154,7 @@ In your `package.json`:
 
 `install` / `uninstall` defaults: reads `./dist`, targets both Claude and Codex. Filter with `--targets claude` or `--targets codex`. The marketplace name is read from `./dist/.claude-plugin/marketplace.json`, and the `claude` / `codex` CLIs must be on `$PATH`.
 
-For programmatic use:
+## Programmatic API
 
 ```ts
 import {
@@ -155,6 +164,7 @@ import {
   uninstall,
   compile,
   defineSkill,
+  definePlugin,
   parsePlaceholders,
   substitute,
   checkCompanionFiles,

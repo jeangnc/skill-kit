@@ -1,4 +1,4 @@
-import { mkdir, readdir, copyFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, copyFile, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 import { dump } from "js-yaml";
@@ -52,9 +52,10 @@ export async function compileTree(
   outRoot: string,
   localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
+  contextFiles: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const skillFolders = await collectSkillFolders(srcRoot);
-  const includedAbsPaths = new Set<string>();
+  const handledAbsPaths = new Set<string>();
 
   for await (const absPath of walk(srcRoot)) {
     if (!SKILL_SOURCE_FILENAMES.has(basename(absPath))) continue;
@@ -67,7 +68,13 @@ export async function compileTree(
       localIds,
       bodyInvariants,
     );
-    for (const p of result.resolvedIncludes) includedAbsPaths.add(p);
+    for (const p of result.resolvedIncludes) handledAbsPaths.add(p);
+  }
+
+  for (const absPath of contextFiles) {
+    const target = join(outRoot, relative(srcRoot, absPath));
+    await emitContextFile(absPath, target, localIds);
+    handledAbsPaths.add(absPath);
   }
 
   for await (const absPath of walk(srcRoot)) {
@@ -75,12 +82,34 @@ export async function compileTree(
     if (SKILL_SOURCE_FILENAMES.has(file)) continue;
     if (absPath.endsWith(".ts")) continue;
     if (file === "body.md") continue;
-    if (includedAbsPaths.has(absPath)) continue;
+    if (handledAbsPaths.has(absPath)) continue;
 
     const target = join(outRoot, relative(srcRoot, absPath));
     await mkdir(dirname(target), { recursive: true });
     await copyFile(absPath, target);
   }
+}
+
+async function emitContextFile(
+  srcPath: string,
+  outPath: string,
+  localIds: LocalIds,
+): Promise<void> {
+  const raw = await readFile(srcPath, "utf8");
+  const dir = dirname(srcPath);
+  const expanded = await expandIncludes(raw, srcPath, dir);
+  if (!expanded.ok) {
+    throwInvariantViolations(srcPath, expanded.error.map(formatIncludeError));
+  }
+  const expandedBody = expanded.value.body;
+  const existingRefs = await precomputeExistingRefs(expandedBody, dir);
+  const registry = buildRegistry(undefined, localIds, existingRefs, dir);
+  const result = substitute(expandedBody, registry);
+  if (!result.ok) {
+    throwInvariantViolations(srcPath, result.errors);
+  }
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, result.rendered);
 }
 
 async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[]>> {

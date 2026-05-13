@@ -935,3 +935,137 @@ test("compile fails when {{ext-agent:...}} value does not match <plugin>:<agent>
     },
   );
 });
+
+test("compile substitutes placeholders in context files declared on the plugin", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "use {{skill:foo:bar}} when needed\n",
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "stub" });
+`,
+        "skills/bar/body.md": "# Bar\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/context/instructions.md"), "utf8");
+      assert.match(out, /use `foo:bar` when needed/);
+    },
+  );
+});
+
+test("compile fails when a context file references an unknown local skill", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{skill:foo:ghost}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /unknown skill id "foo:ghost"/);
+    },
+  );
+});
+
+test("compile preserves {{ext:...}} placeholders in context files", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{ext:superpowers:tdd}} for details\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/context/instructions.md"), "utf8");
+      assert.match(out, /see `superpowers:tdd` for details/);
+    },
+  );
+});
+
+test("compile resolves {{ref:...}} in a context file relative to the context file directory", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{ref:./sibling.md}}\n",
+        "context/sibling.md": "# Sibling\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/context/instructions.md"), "utf8");
+      assert.match(out, /see `\.\/sibling\.md`/);
+    },
+  );
+});
+
+test("compile fails when a context file has a broken {{ref:...}}", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  context: [{ file: "context/instructions.md", summary: "ok" }],
+});
+`,
+      extraFiles: {
+        "context/instructions.md": "see {{ref:./ghost.md}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /ref.*ghost\.md.*not found/);
+    },
+  );
+});
+
+test("compile leaves an undeclared .md file untouched (no substitution)", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "notes/scratch.md": "raw {{skill:foo:ghost}} unchanged\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/notes/scratch.md"), "utf8");
+      assert.equal(out, "raw {{skill:foo:ghost}} unchanged\n");
+    },
+  );
+});

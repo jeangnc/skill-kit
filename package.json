@@ -1,6 +1,6 @@
 {
   "name": "@jean.gnc/harness-kit",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "description": "Typed framework for authoring Claude Code skills: schema, placeholder engine, and compile pipeline.",
   "license": "MIT",

@@ -42,6 +42,7 @@ export async function compile(options: CompileOptions): Promise<void> {
         localIds,
         options.bodyInvariants ?? [],
         sub === "plugins" ? contextFiles : new Set(),
+        sub === "plugins" ? plugins : new Map(),
       );
     }
   }

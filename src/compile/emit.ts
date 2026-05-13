@@ -27,6 +27,11 @@ export interface LocalIds {
   readonly agents: ReadonlySet<string>;
 }
 
+export interface OwningPlugin {
+  readonly name: string;
+  readonly dependencies: ReadonlySet<string>;
+}
+
 export type BodyInvariant = (body: string) => string[];
 
 export async function emitPluginManifests(
@@ -53,9 +58,12 @@ export async function compileTree(
   localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
   contextFiles: ReadonlySet<string> = new Set(),
+  pluginsByName: ReadonlyMap<string, Plugin> = new Map(),
 ): Promise<void> {
   const skillFolders = await collectSkillFolders(srcRoot);
   const handledAbsPaths = new Set<string>();
+  const ownerFor = (absPath: string): OwningPlugin | null =>
+    resolveOwner(srcRoot, absPath, pluginsByName);
 
   for await (const absPath of walk(srcRoot)) {
     if (!SKILL_SOURCE_FILENAMES.has(basename(absPath))) continue;
@@ -67,13 +75,14 @@ export async function compileTree(
       companions,
       localIds,
       bodyInvariants,
+      ownerFor(absPath),
     );
     for (const p of result.resolvedIncludes) handledAbsPaths.add(p);
   }
 
   for (const absPath of contextFiles) {
     const target = join(outRoot, relative(srcRoot, absPath));
-    await emitContextFile(absPath, target, localIds);
+    await emitContextFile(absPath, target, localIds, ownerFor(absPath));
     handledAbsPaths.add(absPath);
   }
 
@@ -94,6 +103,7 @@ async function emitContextFile(
   srcPath: string,
   outPath: string,
   localIds: LocalIds,
+  owner: OwningPlugin | null,
 ): Promise<void> {
   const raw = await readFile(srcPath, "utf8");
   const dir = dirname(srcPath);
@@ -103,13 +113,27 @@ async function emitContextFile(
   }
   const expandedBody = expanded.value.body;
   const existingRefs = await precomputeExistingRefs(expandedBody, dir);
-  const registry = buildRegistry(undefined, localIds, existingRefs, dir);
+  const registry = buildRegistry(undefined, localIds, existingRefs, dir, owner);
   const result = substitute(expandedBody, registry);
   if (!result.ok) {
     throwInvariantViolations(srcPath, result.errors);
   }
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, result.rendered);
+}
+
+function resolveOwner(
+  srcRoot: string,
+  absPath: string,
+  pluginsByName: ReadonlyMap<string, Plugin>,
+): OwningPlugin | null {
+  const rel = relative(srcRoot, absPath);
+  if (rel.startsWith("..")) return null;
+  const [first] = rel.split("/");
+  if (!first) return null;
+  const plugin = pluginsByName.get(first);
+  if (!plugin) return null;
+  return { name: plugin.name, dependencies: new Set(plugin.dependencies ?? []) };
 }
 
 async function collectSkillFolders(srcRoot: string): Promise<Map<string, string[]>> {
@@ -138,6 +162,7 @@ async function emitSkill(
   siblings: readonly string[],
   localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
+  owner: OwningPlugin | null,
 ): Promise<EmitResult> {
   const skillDir = dirname(srcPath);
   const loaded = await loadSkill(skillDir);
@@ -172,7 +197,7 @@ async function emitSkill(
   }
 
   const existingRefs = await precomputeExistingRefs(expandedBody, skillDir);
-  const registry = buildRegistry(skill.companions, localIds, existingRefs, skillDir);
+  const registry = buildRegistry(skill.companions, localIds, existingRefs, skillDir, owner);
   const result = substitute(expandedBody, registry);
   if (!result.ok) {
     throwInvariantViolations(srcPath, result.errors);
@@ -217,6 +242,7 @@ function buildRegistry(
   localIds: LocalIds,
   existingRefs: ReadonlySet<string>,
   skillDir: string,
+  owner: OwningPlugin | null,
 ): ValidatorRegistry {
   return {
     skill: (value) => {
@@ -224,6 +250,8 @@ function buildRegistry(
       if (!localIds.skills.has(value)) {
         return { ok: false, error: `unknown skill id "${value}" — not a local skill` };
       }
+      const crossPlugin = crossPluginViolation(value, owner);
+      if (crossPlugin) return { ok: false, error: crossPlugin };
       return { ok: true, rendered: `\`${value}\`` };
     },
     command: (value) => {
@@ -237,6 +265,8 @@ function buildRegistry(
       if (!localIds.commands.has(value)) {
         return { ok: false, error: `unknown command id "${value}" — not a local command` };
       }
+      const crossPlugin = crossPluginViolation(value, owner);
+      if (crossPlugin) return { ok: false, error: crossPlugin };
       return { ok: true, rendered: `\`/${value}\`` };
     },
     agent: (value) => {
@@ -250,6 +280,8 @@ function buildRegistry(
       if (!localIds.agents.has(value)) {
         return { ok: false, error: `unknown agent id "${value}" — not a local agent` };
       }
+      const crossPlugin = crossPluginViolation(value, owner);
+      if (crossPlugin) return { ok: false, error: crossPlugin };
       return { ok: true, rendered: `\`${bareName(value)}\`` };
     },
     ext: (value) => {
@@ -300,6 +332,16 @@ function buildRegistry(
 function bareName(id: string): string {
   const idx = id.indexOf(":");
   return idx === -1 ? id : id.slice(idx + 1);
+}
+
+function crossPluginViolation(id: string, owner: OwningPlugin | null): string | null {
+  if (!owner) return null;
+  const idx = id.indexOf(":");
+  if (idx === -1) return null;
+  const otherPlugin = id.slice(0, idx);
+  if (otherPlugin === owner.name) return null;
+  if (owner.dependencies.has(otherPlugin)) return null;
+  return `cross-plugin reference to "${otherPlugin}" requires "${otherPlugin}" in ${owner.name}'s dependencies`;
 }
 
 function renderCompanions(companions: readonly Companion[]): string {

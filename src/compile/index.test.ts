@@ -1158,3 +1158,138 @@ export default definePlugin({
     },
   );
 });
+
+test("compile accepts a cross-plugin {{skill:other:bar}} reference when `other` is in dependencies", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({
+  name: "foo",
+  version: "1.0.0",
+  description: "demo",
+  dependencies: ["other"],
+});
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "see {{skill:other:tdd}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      // Other plugin lives in the same src tree
+      const otherDir = join(srcRoot, "plugins/other");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "PLUGIN.ts"),
+        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+      );
+      makeStubSkill(srcRoot, "other", "tdd");
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+    },
+  );
+});
+
+test("compile fails on a cross-plugin {{skill:other:bar}} when `other` is not in dependencies", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "see {{skill:other:tdd}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      const otherDir = join(srcRoot, "plugins/other");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "PLUGIN.ts"),
+        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+      );
+      makeStubSkill(srcRoot, "other", "tdd");
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /cross-plugin.*other.*dependencies/i,
+      );
+    },
+  );
+});
+
+test("compile fails on a cross-plugin {{command:other:open}} when `other` is not in dependencies", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "run {{command:other:open}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      const otherDir = join(srcRoot, "plugins/other");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "PLUGIN.ts"),
+        `import { definePlugin } from "#skill-kit";\nexport default definePlugin({ name: "other", version: "1.0.0", description: "demo" });\n`,
+      );
+      makeStubCommand(srcRoot, "other", "open");
+      await assert.rejects(
+        compile({ srcRoot, outRoot: distRoot }),
+        /cross-plugin.*other.*dependencies/i,
+      );
+    },
+  );
+});
+
+test("compile permits same-plugin {{skill:foo:bar}} reference without any dependencies declared", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "no self-loop, but: {{skill:foo:other-skill}}\n",
+        "skills/other-skill/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "other-skill", description: "demo" });
+`,
+        "skills/other-skill/body.md": "# Other\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+    },
+  );
+});
+
+test("compile does NOT enforce dependencies on {{ext:other:tdd}} (ext-* crosses out of the marketplace)", async () => {
+  await withPluginFixture(
+    {
+      pluginSource: `import { definePlugin } from "#skill-kit";
+export default definePlugin({ name: "foo", version: "1.0.0", description: "demo" });
+`,
+      extraFiles: {
+        "skills/bar/SKILL.ts": `import { defineSkill } from "#skill-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+        "skills/bar/body.md": "external ref: {{ext:other:tdd}}\n",
+      },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+    },
+  );
+});

@@ -5,9 +5,9 @@ import { offsetToLineCol, parsePlaceholders } from "./placeholders/index.js";
 import { findSkillFile, formatLoadSkillError, loadSkill } from "./skill/index.js";
 import {
   defaultSources,
-  discoverInstalledSkills,
-  indexSkills,
-  type InstalledSkill,
+  discoverInstalled,
+  indexInstalled,
+  type InstalledIndex,
   type PluginSource,
 } from "./installed.js";
 
@@ -42,6 +42,12 @@ const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 const SUGGESTION_DISTANCE_FLOOR = 2;
 const SUGGESTION_DISTANCE_DIVISOR = 3;
 
+interface ExtKindConfig {
+  readonly noun: string;
+  readonly malformedHint: string;
+  readonly haystack: ReadonlyMap<string, unknown>;
+}
+
 interface BodySource {
   readonly body: string;
   readonly bodyOffset: number;
@@ -51,11 +57,11 @@ interface BodySource {
 
 export async function check(options: CheckOptions): Promise<CheckResult> {
   const sources = options.sources ?? defaultSources();
-  const installed = await discoverInstalledSkills(sources);
-  const index = indexSkills(installed);
+  const artifacts = await discoverInstalled(sources);
+  const index = indexInstalled(artifacts);
   const indexedSources = sources.map<SourceSummary>((s) => ({
     source: s.name,
-    skillCount: installed.filter((i) => i.source === s.name).length,
+    skillCount: artifacts.skills.filter((i) => i.source === s.name).length,
   }));
 
   const violations: ExtViolation[] = [];
@@ -83,37 +89,61 @@ export async function check(options: CheckOptions): Promise<CheckResult> {
   return { violations, checkedFiles, indexedSources };
 }
 
-function validateBody(
-  source: BodySource,
-  index: ReadonlyMap<string, readonly InstalledSkill[]>,
-): readonly ExtViolation[] {
+function validateBody(source: BodySource, index: InstalledIndex): readonly ExtViolation[] {
+  const kinds = extKindConfigs(index);
   const violations: ExtViolation[] = [];
   for (const token of parsePlaceholders(source.body)) {
-    if (token.prefix !== "ext") continue;
+    const kind = kinds.get(token.prefix);
+    if (!kind) continue;
     const { line, column } = offsetToLineCol(source.fileText, source.bodyOffset + token.start);
     const at = { token: token.raw, file: source.filePath, line, column };
 
     if (token.value === null || !EXT_ID_PATTERN.test(token.value)) {
-      violations.push({
-        ...at,
-        kind: "malformed",
-        message: "expected `{{ext:<plugin>:<skill>}}` in kebab-case",
-      });
+      violations.push({ ...at, kind: "malformed", message: kind.malformedHint });
       continue;
     }
 
-    if (index.has(token.value)) continue;
+    if (kind.haystack.has(token.value)) continue;
 
-    const suggestion = closestMatch(token.value, [...index.keys()]);
+    const suggestion = closestMatch(token.value, [...kind.haystack.keys()]);
     violations.push({
       ...at,
       kind: "unresolved",
       message: suggestion
-        ? `\`${token.value}\` not installed (did you mean \`${suggestion}\`?)`
-        : `\`${token.value}\` not installed`,
+        ? `\`${token.value}\` ${kind.noun} not installed (did you mean \`${suggestion}\`?)`
+        : `\`${token.value}\` ${kind.noun} not installed`,
     });
   }
   return violations;
+}
+
+function extKindConfigs(index: InstalledIndex): ReadonlyMap<string, ExtKindConfig> {
+  return new Map<string, ExtKindConfig>([
+    [
+      "ext",
+      {
+        noun: "skill",
+        malformedHint: "expected `{{ext:<plugin>:<skill>}}` in kebab-case",
+        haystack: index.skills,
+      },
+    ],
+    [
+      "ext-command",
+      {
+        noun: "command",
+        malformedHint: "expected `{{ext-command:<plugin>:<command>}}` in kebab-case",
+        haystack: index.commands,
+      },
+    ],
+    [
+      "ext-agent",
+      {
+        noun: "agent",
+        malformedHint: "expected `{{ext-agent:<plugin>:<agent>}}` in kebab-case",
+        haystack: index.agents,
+      },
+    ],
+  ]);
 }
 
 async function* findSkillDirs(srcRoot: string): AsyncGenerator<string> {

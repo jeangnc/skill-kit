@@ -21,6 +21,12 @@ const COMPANIONS_PREFIX = "companions";
 const SKILL_SOURCE_FILENAMES: ReadonlySet<string> = new Set(["SKILL.ts", "SKILL.md"]);
 const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
+export interface LocalIds {
+  readonly skills: ReadonlySet<string>;
+  readonly commands: ReadonlySet<string>;
+  readonly agents: ReadonlySet<string>;
+}
+
 export type BodyInvariant = (body: string) => string[];
 
 export async function emitPluginManifests(
@@ -44,7 +50,7 @@ function toLegacyPluginJson(plugin: Plugin): LegacyPluginManifest {
 export async function compileTree(
   srcRoot: string,
   outRoot: string,
-  localSkillIds: ReadonlySet<string>,
+  localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<void> {
   const skillFolders = await collectSkillFolders(srcRoot);
@@ -58,7 +64,7 @@ export async function compileTree(
       absPath,
       join(dirname(target), "SKILL.md"),
       companions,
-      localSkillIds,
+      localIds,
       bodyInvariants,
     );
     for (const p of result.resolvedIncludes) includedAbsPaths.add(p);
@@ -101,7 +107,7 @@ async function emitSkill(
   srcPath: string,
   outPath: string,
   siblings: readonly string[],
-  localSkillIds: ReadonlySet<string>,
+  localIds: LocalIds,
   bodyInvariants: readonly BodyInvariant[],
 ): Promise<EmitResult> {
   const skillDir = dirname(srcPath);
@@ -137,7 +143,7 @@ async function emitSkill(
   }
 
   const existingRefs = await precomputeExistingRefs(expandedBody, skillDir);
-  const registry = buildRegistry(skill.companions, localSkillIds, existingRefs, skillDir);
+  const registry = buildRegistry(skill.companions, localIds, existingRefs, skillDir);
   const result = substitute(expandedBody, registry);
   if (!result.ok) {
     throwInvariantViolations(srcPath, result.errors);
@@ -179,17 +185,43 @@ async function precomputeExistingRefs(
 
 function buildRegistry(
   companions: readonly Companion[] | undefined,
-  localSkillIds: ReadonlySet<string>,
+  localIds: LocalIds,
   existingRefs: ReadonlySet<string>,
   skillDir: string,
 ): ValidatorRegistry {
   return {
     skill: (value) => {
       if (value === null) return { ok: false, error: "expected `{{skill:<plugin>:<name>}}`" };
-      if (!localSkillIds.has(value)) {
+      if (!localIds.skills.has(value)) {
         return { ok: false, error: `unknown skill id "${value}" — not a local skill` };
       }
       return { ok: true, rendered: `\`${value}\`` };
+    },
+    command: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{command:<plugin>:<command>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `command id "${value}" must match <plugin>:<command> (kebab-case)`,
+        };
+      }
+      if (!localIds.commands.has(value)) {
+        return { ok: false, error: `unknown command id "${value}" — not a local command` };
+      }
+      return { ok: true, rendered: `\`/${value}\`` };
+    },
+    agent: (value) => {
+      if (value === null) return { ok: false, error: "expected `{{agent:<plugin>:<agent>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `agent id "${value}" must match <plugin>:<agent> (kebab-case)`,
+        };
+      }
+      if (!localIds.agents.has(value)) {
+        return { ok: false, error: `unknown agent id "${value}" — not a local agent` };
+      }
+      return { ok: true, rendered: `\`${bareName(value)}\`` };
     },
     ext: (value) => {
       if (value === null) return { ok: false, error: "expected `{{ext:<plugin>:<skill>}}`" };
@@ -197,6 +229,28 @@ function buildRegistry(
         return { ok: false, error: `ext id "${value}" must match <plugin>:<skill> (kebab-case)` };
       }
       return { ok: true, rendered: `\`${value}\`` };
+    },
+    "ext-command": (value) => {
+      if (value === null) {
+        return { ok: false, error: "expected `{{ext-command:<plugin>:<command>}}`" };
+      }
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `ext-command id "${value}" must match <plugin>:<command> (kebab-case)`,
+        };
+      }
+      return { ok: true, rendered: `\`/${value}\`` };
+    },
+    "ext-agent": (value) => {
+      if (value === null) return { ok: false, error: "expected `{{ext-agent:<plugin>:<agent>}}`" };
+      if (!EXT_ID_PATTERN.test(value)) {
+        return {
+          ok: false,
+          error: `ext-agent id "${value}" must match <plugin>:<agent> (kebab-case)`,
+        };
+      }
+      return { ok: true, rendered: `\`${bareName(value)}\`` };
     },
     ref: (value) => {
       if (value === null) return { ok: false, error: "expected `{{ref:<relative-path>}}`" };
@@ -212,6 +266,11 @@ function buildRegistry(
       return { ok: true, rendered: renderCompanions(companions) };
     },
   };
+}
+
+function bareName(id: string): string {
+  const idx = id.indexOf(":");
+  return idx === -1 ? id : id.slice(idx + 1);
 }
 
 function renderCompanions(companions: readonly Companion[]): string {

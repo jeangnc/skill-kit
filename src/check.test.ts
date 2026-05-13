@@ -33,21 +33,49 @@ async function withSrcFixture<T>(
   return fn(srcRoot).finally(() => rmSync(sandbox, { recursive: true, force: true }));
 }
 
+interface InstalledArtifact {
+  readonly plugin: string;
+  readonly skill?: string;
+  readonly command?: string;
+  readonly agent?: string;
+}
+
 async function withInstalledFixture<T>(
-  installed: ReadonlyArray<{ plugin: string; skill: string }>,
+  installed: readonly InstalledArtifact[],
   fn: (sources: readonly PluginSource[]) => Promise<T>,
 ): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), "skill-kit-check-installed-"));
-  for (const { plugin, skill } of installed) {
-    const pluginRoot = join(root, "marketplace", plugin);
-    const skillDir = join(pluginRoot, "skills", skill);
-    mkdirSync(skillDir, { recursive: true });
+  for (const item of installed) {
+    const pluginRoot = join(root, "marketplace", item.plugin);
     mkdirSync(join(pluginRoot, ".claude-plugin"), { recursive: true });
     writeFileSync(
       join(pluginRoot, ".claude-plugin/plugin.json"),
-      JSON.stringify({ name: plugin, version: "1.0.0" }),
+      JSON.stringify({ name: item.plugin, version: "1.0.0" }),
     );
-    writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ${skill}\ndescription: x\n---\n\nbody\n`);
+    if (item.skill) {
+      const skillDir = join(pluginRoot, "skills", item.skill);
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, "SKILL.md"),
+        `---\nname: ${item.skill}\ndescription: x\n---\n\nbody\n`,
+      );
+    }
+    if (item.command) {
+      const dir = join(pluginRoot, "commands");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, `${item.command}.md`),
+        `---\nname: ${item.command}\ndescription: x\n---\n\nbody\n`,
+      );
+    }
+    if (item.agent) {
+      const dir = join(pluginRoot, "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, `${item.agent}.md`),
+        `---\nname: ${item.agent}\ndescription: x\n---\n\nbody\n`,
+      );
+    }
   }
   return fn([{ name: "claude", root }]).finally(() =>
     rmSync(root, { recursive: true, force: true }),
@@ -167,4 +195,109 @@ test("check works with TS-authored skills (body in body.md)", async () => {
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
+});
+
+test("check returns no violations when an ext-command resolves to an installed command", async () => {
+  await withInstalledFixture([{ plugin: "dev-tools", command: "open-pr" }], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "run {{ext-command:dev-tools:open-pr}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.deepEqual([...result.violations], []);
+      },
+    );
+  });
+});
+
+test("check reports an unresolved ext-command when no installed plugin has the command", async () => {
+  await withInstalledFixture([{ plugin: "dev-tools", command: "open-pr" }], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "run {{ext-command:dev-tools:ghost}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.equal(result.violations.length, 1);
+        assert.equal(result.violations[0]!.kind, "unresolved");
+        assert.match(result.violations[0]!.token, /ext-command:dev-tools:ghost/);
+      },
+    );
+  });
+});
+
+test("check suggests the closest command match when an ext-command id is a near-miss", async () => {
+  await withInstalledFixture([{ plugin: "dev-tools", command: "open-pr" }], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "run {{ext-command:dev-tools:open-prs}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.equal(result.violations.length, 1);
+        assert.match(result.violations[0]!.message, /dev-tools:open-pr/);
+      },
+    );
+  });
+});
+
+test("check does not cross-suggest a skill id for an unresolved ext-command", async () => {
+  await withInstalledFixture([{ plugin: "dev-tools", skill: "open-pr" }], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "run {{ext-command:dev-tools:open-pr}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.equal(result.violations.length, 1);
+        assert.equal(result.violations[0]!.kind, "unresolved");
+        assert.doesNotMatch(result.violations[0]!.message, /did you mean/);
+      },
+    );
+  });
+});
+
+test("check returns no violations when an ext-agent resolves to an installed agent", async () => {
+  await withInstalledFixture([{ plugin: "dev-tools", agent: "code-reviewer" }], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "dispatch {{ext-agent:dev-tools:code-reviewer}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.deepEqual([...result.violations], []);
+      },
+    );
+  });
+});
+
+test("check reports an unresolved ext-agent when no installed plugin has the agent", async () => {
+  await withInstalledFixture([{ plugin: "dev-tools", agent: "code-reviewer" }], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "dispatch {{ext-agent:dev-tools:ghost}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.equal(result.violations.length, 1);
+        assert.equal(result.violations[0]!.kind, "unresolved");
+        assert.match(result.violations[0]!.token, /ext-agent:dev-tools:ghost/);
+      },
+    );
+  });
+});
+
+test("check reports a malformed ext-command when value does not match <plugin>:<command>", async () => {
+  await withInstalledFixture([], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "{{ext-command:lonely}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.equal(result.violations.length, 1);
+        assert.equal(result.violations[0]!.kind, "malformed");
+      },
+    );
+  });
+});
+
+test("check reports a malformed ext-agent when value does not match <plugin>:<agent>", async () => {
+  await withInstalledFixture([], async (sources) => {
+    await withSrcFixture(
+      [{ plugin: "foo", skill: "bar", body: "{{ext-agent:lonely}}\n" }],
+      async (srcRoot) => {
+        const result = await check({ srcRoot, sources });
+        assert.equal(result.violations.length, 1);
+        assert.equal(result.violations[0]!.kind, "malformed");
+      },
+    );
+  });
 });

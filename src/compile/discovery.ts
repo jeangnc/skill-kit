@@ -86,3 +86,34 @@ export async function discoverLocalSkillIds(srcRoot: string): Promise<ReadonlySe
   }
   return ids;
 }
+
+export async function discoverLocalCommandIds(srcRoot: string): Promise<ReadonlySet<string>> {
+  return discoverFlatMarkdownIds(srcRoot, "commands");
+}
+
+export async function discoverLocalAgentIds(srcRoot: string): Promise<ReadonlySet<string>> {
+  return discoverFlatMarkdownIds(srcRoot, "agents");
+}
+
+async function discoverFlatMarkdownIds(
+  srcRoot: string,
+  subdir: string,
+): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>();
+  const pluginsRoot = join(srcRoot, "plugins");
+  if (!(await pathExists(pluginsRoot))) return ids;
+  const plugins = await readdir(pluginsRoot, { withFileTypes: true });
+  for (const plugin of plugins) {
+    if (!plugin.isDirectory()) continue;
+    const kindDir = join(pluginsRoot, plugin.name, subdir);
+    if (!(await pathExists(kindDir))) continue;
+    const entries = await readdir(kindDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(".md")) continue;
+      const name = entry.name.slice(0, -3);
+      ids.add(`${plugin.name}:${name}`);
+    }
+  }
+  return ids;
+}

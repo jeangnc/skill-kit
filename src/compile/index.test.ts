@@ -100,6 +100,24 @@ function makeStubSkill(srcRoot: string, plugin: string, name: string): void {
   writeFileSync(join(dir, "body.md"), `# ${name}\n`);
 }
 
+function makeStubCommand(srcRoot: string, plugin: string, name: string): void {
+  const dir = join(srcRoot, "plugins", plugin, "commands");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${name}.md`),
+    `---\nname: ${name}\ndescription: stub command\n---\n\n# ${name}\n`,
+  );
+}
+
+function makeStubAgent(srcRoot: string, plugin: string, name: string): void {
+  const dir = join(srcRoot, "plugins", plugin, "agents");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `${name}.md`),
+    `---\nname: ${name}\ndescription: stub agent\n---\n\n# ${name}\n`,
+  );
+}
+
 const SKILL_TS_BARE = `import { defineSkill } from "#skill-kit";
 export default defineSkill({ name: "bar", description: "fixture skill" });
 `;
@@ -786,4 +804,134 @@ test("compile builds the markdown-only fixture end-to-end", async () => {
     const preambleCopy = join(dist, "plugins/foo/skills/bar/preamble.md");
     assert.ok(!existsSync(preambleCopy), `did not expect ${preambleCopy} to exist`);
   });
+});
+
+test("compile substitutes {{command:plugin:name}} as `/plugin:name` for a discovered local command", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "run {{command:dev-tools:open-pr}} to ship\n",
+    },
+    async (srcRoot, distRoot) => {
+      makeStubCommand(srcRoot, "dev-tools", "open-pr");
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /run `\/dev-tools:open-pr` to ship/);
+    },
+  );
+});
+
+test("compile fails when {{command:...}} references an id that is not a local command", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "see {{command:dev-tools:ghost}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /dev-tools:ghost/);
+    },
+  );
+});
+
+test("compile fails when {{command:...}} value does not have <plugin>:<command> shape", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{command:lonelyid}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<command>/);
+    },
+  );
+});
+
+test("compile substitutes {{agent:plugin:name}} as `name` (bare) for a discovered local agent", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "dispatch {{agent:dev-tools:code-reviewer}} for review\n",
+    },
+    async (srcRoot, distRoot) => {
+      makeStubAgent(srcRoot, "dev-tools", "code-reviewer");
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /dispatch `code-reviewer` for review/);
+    },
+  );
+});
+
+test("compile fails when {{agent:...}} references an id that is not a local agent", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "see {{agent:dev-tools:ghost}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /dev-tools:ghost/);
+    },
+  );
+});
+
+test("compile fails when {{agent:...}} value does not have <plugin>:<agent> shape", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{agent:lonelyid}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<agent>/);
+    },
+  );
+});
+
+test("compile renders {{ext-command:...}} as `/plugin:name` without local lookup", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "run {{ext-command:dev-tools:open-pr}} after merging\n",
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /run `\/dev-tools:open-pr` after merging/);
+    },
+  );
+});
+
+test("compile fails when {{ext-command:...}} value does not match <plugin>:<command>", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{ext-command:lonely}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<command>/);
+    },
+  );
+});
+
+test("compile renders {{ext-agent:...}} as bare `name` without local lookup", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "dispatch {{ext-agent:dev-tools:code-reviewer}} for review\n",
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const out = readFileSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md"), "utf8");
+      assert.match(out, /dispatch `code-reviewer` for review/);
+    },
+  );
+});
+
+test("compile fails when {{ext-agent:...}} value does not match <plugin>:<agent>", async () => {
+  await withSkillFixture(
+    {
+      skillSource: SKILL_TS_BARE,
+      bodyMd: "{{ext-agent:lonely}}\n",
+    },
+    async (srcRoot, distRoot) => {
+      await assert.rejects(compile({ srcRoot, outRoot: distRoot }), /<plugin>:<agent>/);
+    },
+  );
 });

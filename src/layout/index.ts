@@ -1,8 +1,9 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { formatZodIssues } from "../errors/index.js";
+import { pathExists } from "../fs.js";
 import { MarketplaceSchema, type Marketplace, type PluginEntry } from "../marketplace/index.js";
 import { PluginSchema, type Plugin } from "../plugin/index.js";
 import { err, ok, type Result } from "../result.js";
@@ -55,15 +56,6 @@ export type LayoutError =
 
 const MANIFEST_JSON = ".claude-plugin/plugin.json";
 const MANIFEST_TS = "PLUGIN.ts";
-
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function resolvePluginDir(srcRoot: string, pluginRoot: string | undefined, source: string): string {
   if (source.startsWith("./") || source.startsWith("../") || source === ".") {

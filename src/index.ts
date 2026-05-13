@@ -48,14 +48,21 @@ export type { LintOptions, LintResult } from "./lint.js";
 export { install, uninstall } from "./install/index.js";
 export type { InstallOptions, Target } from "./install/index.js";
 
-export { check } from "./check.js";
+export { check } from "./check/index.js";
 export type {
   CheckOptions,
   CheckResult,
   ExtViolation,
   ExtViolationKind,
   SourceSummary,
-} from "./check.js";
+} from "./check/index.js";
 
-export { defaultSources, discoverInstalledSkills, indexSkills } from "./installed.js";
-export type { InstalledSkill, PluginSource } from "./installed.js";
+export { defaultSources, discoverInstalled, indexInstalled } from "./installed.js";
+export type {
+  InstalledAgent,
+  InstalledArtifacts,
+  InstalledCommand,
+  InstalledIndex,
+  InstalledSkill,
+  PluginSource,
+} from "./installed.js";

@@ -2,7 +2,8 @@ import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { compileTree, type BodyInvariant, type OwningPlugin } from "./emit.js";
-import { pathExists, throwInvariantViolations } from "./discovery.js";
+import { pathExists } from "../fs.js";
+import { throwInvariantViolations } from "./discovery.js";
 import {
   collectLocalIds,
   loadLayout,

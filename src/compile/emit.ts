@@ -1,32 +1,29 @@
 import { mkdir, readdir, copyFile, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
-
-import { dump } from "js-yaml";
+import { basename, dirname, join, relative } from "node:path";
 
 import {
   checkCompanionFiles,
+  expandIncludes,
+  formatIncludeError,
   formatLoadSkillError,
   isReservedCompanionFilename,
   loadSkill,
-  type Companion,
-  type Skill,
 } from "../skill/index.js";
-import { expandIncludes, formatIncludeError } from "../skill/includes.js";
-import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders/index.js";
+import { substitute } from "../placeholders/index.js";
 
-import { pathExists, throwInvariantViolations } from "./discovery.js";
+import { throwInvariantViolations } from "./discovery.js";
+import {
+  checkCompanionsTokenParity,
+  precomputeExistingRefs,
+  renderFrontmatter,
+} from "./frontmatter.js";
+import { buildRegistry, type OwningPlugin } from "./validators.js";
 import type { LocalIds } from "../layout/index.js";
 
-const COMPANIONS_PREFIX = "companions";
 const SKILL_SOURCE_FILENAMES: ReadonlySet<string> = new Set(["SKILL.ts", "SKILL.md"]);
-const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
 export type { LocalIds } from "../layout/index.js";
-
-export interface OwningPlugin {
-  readonly name: string;
-  readonly dependencies: ReadonlySet<string>;
-}
+export type { OwningPlugin } from "./validators.js";
 
 export type BodyInvariant = (body: string) => string[];
 
@@ -173,162 +170,6 @@ async function emitSkill(
   await writeFile(outPath, renderFrontmatter(skill) + result.rendered);
 
   return { resolvedIncludes: expanded.value.resolvedIncludes };
-}
-
-function renderFrontmatter(skill: Skill): string {
-  const lines = [`name: ${skill.name}`, `description: ${skill.description}`];
-  if (skill.companions?.length) {
-    lines.push(dump({ companions: skill.companions }).trimEnd());
-  }
-  return `---\n${lines.join("\n")}\n---\n\n`;
-}
-
-async function precomputeExistingRefs(
-  body: string,
-  skillDir: string,
-): Promise<ReadonlySet<string>> {
-  const refs = new Set<string>();
-  const checks: Array<Promise<void>> = [];
-  for (const token of parsePlaceholders(body)) {
-    if (token.prefix === "ref" && token.value !== null) {
-      const value = token.value;
-      checks.push(
-        pathExists(resolve(skillDir, value)).then((exists) => {
-          if (exists) refs.add(value);
-        }),
-      );
-    }
-  }
-  await Promise.all(checks);
-  return refs;
-}
-
-function buildRegistry(
-  companions: readonly Companion[] | undefined,
-  localIds: LocalIds,
-  existingRefs: ReadonlySet<string>,
-  skillDir: string,
-  owner: OwningPlugin,
-): ValidatorRegistry {
-  return {
-    skill: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{skill:<plugin>:<name>}}`" };
-      if (!localIds.skills.has(value)) {
-        return { ok: false, error: `unknown skill id "${value}" — not a local skill` };
-      }
-      const crossPlugin = crossPluginViolation(value, owner);
-      if (crossPlugin) return { ok: false, error: crossPlugin };
-      return { ok: true, rendered: `\`${value}\`` };
-    },
-    command: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{command:<plugin>:<command>}}`" };
-      if (!EXT_ID_PATTERN.test(value)) {
-        return {
-          ok: false,
-          error: `command id "${value}" must match <plugin>:<command> (kebab-case)`,
-        };
-      }
-      if (!localIds.commands.has(value)) {
-        return { ok: false, error: `unknown command id "${value}" — not a local command` };
-      }
-      const crossPlugin = crossPluginViolation(value, owner);
-      if (crossPlugin) return { ok: false, error: crossPlugin };
-      return { ok: true, rendered: `\`/${value}\`` };
-    },
-    agent: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{agent:<plugin>:<agent>}}`" };
-      if (!EXT_ID_PATTERN.test(value)) {
-        return {
-          ok: false,
-          error: `agent id "${value}" must match <plugin>:<agent> (kebab-case)`,
-        };
-      }
-      if (!localIds.agents.has(value)) {
-        return { ok: false, error: `unknown agent id "${value}" — not a local agent` };
-      }
-      const crossPlugin = crossPluginViolation(value, owner);
-      if (crossPlugin) return { ok: false, error: crossPlugin };
-      return { ok: true, rendered: `\`${bareName(value)}\`` };
-    },
-    ext: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{ext:<plugin>:<skill>}}`" };
-      if (!EXT_ID_PATTERN.test(value)) {
-        return { ok: false, error: `ext id "${value}" must match <plugin>:<skill> (kebab-case)` };
-      }
-      return { ok: true, rendered: `\`${value}\`` };
-    },
-    "ext-command": (value) => {
-      if (value === null) {
-        return { ok: false, error: "expected `{{ext-command:<plugin>:<command>}}`" };
-      }
-      if (!EXT_ID_PATTERN.test(value)) {
-        return {
-          ok: false,
-          error: `ext-command id "${value}" must match <plugin>:<command> (kebab-case)`,
-        };
-      }
-      return { ok: true, rendered: `\`/${value}\`` };
-    },
-    "ext-agent": (value) => {
-      if (value === null) return { ok: false, error: "expected `{{ext-agent:<plugin>:<agent>}}`" };
-      if (!EXT_ID_PATTERN.test(value)) {
-        return {
-          ok: false,
-          error: `ext-agent id "${value}" must match <plugin>:<agent> (kebab-case)`,
-        };
-      }
-      return { ok: true, rendered: `\`${bareName(value)}\`` };
-    },
-    ref: (value) => {
-      if (value === null) return { ok: false, error: "expected `{{ref:<relative-path>}}`" };
-      if (!existingRefs.has(value)) {
-        return { ok: false, error: `ref "${value}" not found relative to skill at ${skillDir}` };
-      }
-      return { ok: true, rendered: `\`${value}\`` };
-    },
-    [COMPANIONS_PREFIX]: () => {
-      if (!companions?.length) {
-        return { ok: false, error: "no companions are declared on this skill" };
-      }
-      return { ok: true, rendered: renderCompanions(companions) };
-    },
-  };
-}
-
-function bareName(id: string): string {
-  const idx = id.indexOf(":");
-  return idx === -1 ? id : id.slice(idx + 1);
-}
-
-function crossPluginViolation(id: string, owner: OwningPlugin): string | null {
-  const idx = id.indexOf(":");
-  if (idx === -1) return null;
-  const otherPlugin = id.slice(0, idx);
-  if (otherPlugin === owner.name) return null;
-  if (owner.dependencies.has(otherPlugin)) return null;
-  return `cross-plugin reference to "${otherPlugin}" requires "${otherPlugin}" in ${owner.name}'s dependencies`;
-}
-
-function renderCompanions(companions: readonly Companion[]): string {
-  const bullets = companions.map((c) => `- \`${c.file}\` — ${c.summary}`).join("\n");
-  return `## Companion files (read on demand)
-
-${bullets}`;
-}
-
-function checkCompanionsTokenParity(
-  body: string,
-  companions: readonly Companion[] | undefined,
-): string[] {
-  const hasCompanions = (companions?.length ?? 0) > 0;
-  if (!hasCompanions) return [];
-  const hasToken = parsePlaceholders(body).some(
-    (t) => t.prefix === COMPANIONS_PREFIX && t.value === null,
-  );
-  if (!hasToken) {
-    return [`companions declared but body is missing the {{${COMPANIONS_PREFIX}}} placeholder`];
-  }
-  return [];
 }
 
 async function* walk(dir: string): AsyncGenerator<string> {

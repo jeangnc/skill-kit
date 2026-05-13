@@ -102,19 +102,6 @@ export function indexInstalled(artifacts: InstalledArtifacts): InstalledIndex {
   };
 }
 
-export async function discoverInstalledSkills(
-  sources: readonly PluginSource[],
-): Promise<readonly InstalledSkill[]> {
-  const { skills } = await discoverInstalled(sources);
-  return skills;
-}
-
-export function indexSkills(
-  skills: readonly InstalledSkill[],
-): ReadonlyMap<string, readonly InstalledSkill[]> {
-  return groupBy(skills, (s) => `${s.plugin}:${s.skill}`);
-}
-
 function groupBy<T>(items: readonly T[], key: (t: T) => string): ReadonlyMap<string, readonly T[]> {
   const result = new Map<string, T[]>();
   for (const item of items) {

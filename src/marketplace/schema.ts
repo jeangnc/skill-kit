@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const SLUG = /^[a-z0-9-]+$/;
+import { PLUGIN_ID } from "../ids.js";
 
 const OwnerSchema = z
   .object({
@@ -81,7 +81,7 @@ const SourceSchema = z.union([RelativeSourceSchema, ObjectSourceSchema]);
 
 export const PluginEntrySchema = z
   .object({
-    name: z.string().min(1).regex(SLUG, "name must be lowercase kebab-case"),
+    name: z.string().min(1).regex(PLUGIN_ID, "name must be lowercase kebab-case"),
     source: SourceSchema,
     strict: z.boolean().optional(),
   })
@@ -92,7 +92,7 @@ export type PluginSource = PluginEntry["source"];
 
 export const MarketplaceSchema = z
   .object({
-    name: z.string().min(1).regex(SLUG, "name must be lowercase kebab-case"),
+    name: z.string().min(1).regex(PLUGIN_ID, "name must be lowercase kebab-case"),
     owner: OwnerSchema,
     metadata: MetadataSchema.optional(),
     plugins: z

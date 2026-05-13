@@ -1,22 +1,25 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { offsetToLineCol, parsePlaceholders } from "./placeholders/index.js";
-import { findSkillFile, formatLoadSkillError, loadSkill } from "./skill/index.js";
+import { pathExists } from "../fs.js";
+import { FQ_ID } from "../ids.js";
+import { offsetToLineCol, parsePlaceholders } from "../placeholders/index.js";
+import { findSkillFile, formatLoadSkillError, loadSkill } from "../skill/index.js";
 import {
   collectLocalIds,
   loadLayout,
   type LayoutAdapter,
-  type LocalIds,
   type ResolvedPlugin,
-} from "./layout/index.js";
+} from "../layout/index.js";
 import {
   defaultSources,
   discoverInstalled,
   indexInstalled,
-  type InstalledIndex,
   type PluginSource,
-} from "./installed.js";
+} from "../installed.js";
+
+import { installedKindConfigs, localKindConfigs, type KindConfig } from "./kinds.js";
+import { closestMatch } from "./suggest.js";
 
 export type CheckMode = "local" | "installed" | "all";
 
@@ -46,17 +49,6 @@ export interface CheckResult {
   readonly violations: readonly ExtViolation[];
   readonly checkedFiles: number;
   readonly indexedSources: readonly SourceSummary[];
-}
-
-const ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
-const SUGGESTION_DISTANCE_FLOOR = 2;
-const SUGGESTION_DISTANCE_DIVISOR = 3;
-
-interface KindConfig {
-  readonly noun: string;
-  readonly missingHint: string;
-  readonly malformedHint: string;
-  readonly haystack: ReadonlySet<string>;
 }
 
 interface BodySource {
@@ -195,7 +187,7 @@ function validateBody(
     const { line, column } = offsetToLineCol(source.fileText, source.bodyOffset + token.start);
     const at = { token: token.raw, file: source.filePath, line, column };
 
-    if (token.value === null || !ID_PATTERN.test(token.value)) {
+    if (token.value === null || !FQ_ID.test(token.value)) {
       violations.push({ ...at, kind: "malformed", message: kind.malformedHint });
       continue;
     }
@@ -212,73 +204,6 @@ function validateBody(
     });
   }
   return violations;
-}
-
-const INSTALLED_MISSING = "not installed";
-const LOCAL_MISSING = "not found in this marketplace";
-
-function installedKindConfigs(index: InstalledIndex): ReadonlyMap<string, KindConfig> {
-  return new Map<string, KindConfig>([
-    [
-      "ext",
-      {
-        noun: "skill",
-        missingHint: INSTALLED_MISSING,
-        malformedHint: "expected `{{ext:<plugin>:<skill>}}` in kebab-case",
-        haystack: new Set(index.skills.keys()),
-      },
-    ],
-    [
-      "ext-command",
-      {
-        noun: "command",
-        missingHint: INSTALLED_MISSING,
-        malformedHint: "expected `{{ext-command:<plugin>:<command>}}` in kebab-case",
-        haystack: new Set(index.commands.keys()),
-      },
-    ],
-    [
-      "ext-agent",
-      {
-        noun: "agent",
-        missingHint: INSTALLED_MISSING,
-        malformedHint: "expected `{{ext-agent:<plugin>:<agent>}}` in kebab-case",
-        haystack: new Set(index.agents.keys()),
-      },
-    ],
-  ]);
-}
-
-function localKindConfigs(ids: LocalIds): ReadonlyMap<string, KindConfig> {
-  return new Map<string, KindConfig>([
-    [
-      "skill",
-      {
-        noun: "skill",
-        missingHint: LOCAL_MISSING,
-        malformedHint: "expected `{{skill:<plugin>:<skill>}}` in kebab-case",
-        haystack: ids.skills,
-      },
-    ],
-    [
-      "command",
-      {
-        noun: "command",
-        missingHint: LOCAL_MISSING,
-        malformedHint: "expected `{{command:<plugin>:<command>}}` in kebab-case",
-        haystack: ids.commands,
-      },
-    ],
-    [
-      "agent",
-      {
-        noun: "agent",
-        missingHint: LOCAL_MISSING,
-        malformedHint: "expected `{{agent:<plugin>:<agent>}}` in kebab-case",
-        haystack: ids.agents,
-      },
-    ],
-  ]);
 }
 
 async function* findSkillDirs(srcRoot: string): AsyncGenerator<string> {
@@ -302,47 +227,4 @@ async function* walkDirs(dir: string): AsyncGenerator<string> {
       yield* walkDirs(join(dir, entry.name));
     }
   }
-}
-
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function closestMatch(needle: string, haystack: readonly string[]): string | null {
-  let best: { value: string; distance: number } | null = null;
-  const threshold = Math.max(
-    SUGGESTION_DISTANCE_FLOOR,
-    Math.floor(needle.length / SUGGESTION_DISTANCE_DIVISOR),
-  );
-  for (const candidate of haystack) {
-    const distance = levenshtein(needle, candidate);
-    if (distance > threshold) continue;
-    if (!best || distance < best.distance) best = { value: candidate, distance };
-  }
-  return best?.value ?? null;
-}
-
-function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  let curr = new Array<number>(b.length + 1).fill(0);
-  for (let i = 1; i <= a.length; i += 1) {
-    curr[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      const deletion = (curr[j - 1] ?? 0) + 1;
-      const insertion = (prev[j] ?? 0) + 1;
-      const substitution = (prev[j - 1] ?? 0) + cost;
-      curr[j] = Math.min(deletion, insertion, substitution);
-    }
-    [prev, curr] = [curr, prev];
-  }
-  return prev[b.length] ?? 0;
 }

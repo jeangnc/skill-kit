@@ -1,6 +1,8 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { pathExists } from "../fs.js";
+import { FQ_ID } from "../ids.js";
 import { offsetToLineCol, parsePlaceholders, type Placeholder } from "../placeholders/index.js";
 
 export interface LocalIds {
@@ -31,7 +33,6 @@ export interface ValidateReadmeOptions {
 }
 
 const SENTINEL = "<!-- skill-kit:validate -->";
-const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 const LINK_PATTERN = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const ABSOLUTE_URL_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
 
@@ -94,7 +95,7 @@ function localIdViolation(
   owner: OwningPlugin | null,
 ): string | null {
   if (value === null) return `expected \`{{${kind}:<plugin>:<${kind}>}}\``;
-  if (!EXT_ID_PATTERN.test(value)) {
+  if (!FQ_ID.test(value)) {
     return `${kind} id "${value}" must match <plugin>:<${kind}> (kebab-case)`;
   }
   if (!haystack.has(value)) return `unknown ${kind} id "${value}" — not a local ${kind}`;
@@ -107,7 +108,7 @@ function formatViolation(
   noun: "skill" | "command" | "agent",
 ): string | null {
   if (value === null) return `expected \`{{${prefix}:<plugin>:<${noun}>}}\``;
-  if (!EXT_ID_PATTERN.test(value)) {
+  if (!FQ_ID.test(value)) {
     return `${prefix} id "${value}" must match <plugin>:<${noun}> (kebab-case)`;
   }
   return null;
@@ -150,13 +151,4 @@ function stripAnchor(url: string): string {
   const hashIdx = url.indexOf("#");
   if (hashIdx === -1) return url;
   return url.slice(0, hashIdx);
-}
-
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
 }

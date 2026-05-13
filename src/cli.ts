@@ -6,7 +6,7 @@ import { defineCommand, runMain } from "citty";
 import { z } from "zod";
 
 import { build } from "./build.js";
-import { check, type CheckMode, type ExtViolation } from "./check.js";
+import { check, type CheckMode, type ExtViolation } from "./check/index.js";
 import { install, uninstall, type Target } from "./install/index.js";
 import { lint } from "./lint.js";
 

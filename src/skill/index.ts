@@ -16,3 +16,6 @@ export type {
 } from "./source.js";
 
 export { checkCompanionFiles } from "./invariants.js";
+
+export { expandIncludes, formatIncludeError } from "./includes.js";
+export type { ExpandedBody, IncludeError } from "./includes.js";

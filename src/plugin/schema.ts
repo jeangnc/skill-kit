@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { FQ_ID, PLUGIN_ID } from "../ids.js";
+
 export const ContextEntrySchema = z.object({
   file: z.string().min(1).regex(/\.md$/, "file must be a .md path"),
   summary: z
@@ -24,10 +26,7 @@ const contextListSchema = z
     "context files must be unique",
   );
 
-const SLUG_REF = z
-  .string()
-  .min(1)
-  .regex(/^[a-z0-9-]+:[a-z0-9-]+$/, "must match <plugin>:<name> kebab-case");
+const SLUG_REF = z.string().min(1).regex(FQ_ID, "must match <plugin>:<name> kebab-case");
 
 const HookRequirementBase = z.object({
   event: z.string().min(1),
@@ -51,10 +50,7 @@ export type HookRequirement = z.infer<typeof HookRequirementSchema>;
 
 export const PluginSchema = z
   .object({
-    name: z
-      .string()
-      .min(1)
-      .regex(/^[a-z0-9-]+$/, "name must be lowercase kebab-case"),
+    name: z.string().min(1).regex(PLUGIN_ID, "name must be lowercase kebab-case"),
     version: z.string().min(1),
     description: z
       .string()

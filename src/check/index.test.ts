@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { check } from "./check.js";
-import type { PluginSource } from "./installed.js";
+import { check } from "./index.js";
+import type { PluginSource } from "../installed.js";
 
-const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 interface SkillFile {
   readonly plugin: string;

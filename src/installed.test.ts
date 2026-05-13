@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 import {
   defaultSources,
-  discoverInstalledSkills,
-  indexSkills,
+  discoverInstalled,
+  indexInstalled,
   type PluginSource,
 } from "./installed.js";
 
@@ -55,7 +55,7 @@ function placeSkill(root: string, spec: SkillSpec): string {
   return join(skillDir, "SKILL.md");
 }
 
-test("discoverInstalledSkills finds skills in a flat <marketplace>/<plugin>/skills/<skill>/SKILL.md layout", async () => {
+test("discoverInstalled finds skills in a flat <marketplace>/<plugin>/skills/<skill>/SKILL.md layout", async () => {
   await withInstalledSourceFixture(async (root) => {
     placeSkill(root, {
       layout: "flat",
@@ -75,13 +75,13 @@ test("discoverInstalledSkills finds skills in a flat <marketplace>/<plugin>/skil
       plugin: "plugin-y",
       skill: "lone",
     });
-    const result = await discoverInstalledSkills([{ name: "claude", root }]);
+    const result = (await discoverInstalled([{ name: "claude", root }])).skills;
     const ids = result.map((s) => `${s.plugin}:${s.skill}`).sort();
     assert.deepEqual(ids, ["plugin-x:skill-1", "plugin-x:skill-2", "plugin-y:lone"]);
   });
 });
 
-test("discoverInstalledSkills finds skills in a versioned <marketplace>/<plugin>/<version>/skills/<skill>/SKILL.md layout", async () => {
+test("discoverInstalled finds skills in a versioned <marketplace>/<plugin>/<version>/skills/<skill>/SKILL.md layout", async () => {
   await withInstalledSourceFixture(async (root) => {
     placeSkill(root, {
       layout: "versioned",
@@ -97,13 +97,13 @@ test("discoverInstalledSkills finds skills in a versioned <marketplace>/<plugin>
       version: "1.0.0",
       skill: "helper",
     });
-    const result = await discoverInstalledSkills([{ name: "codex", root }]);
+    const result = (await discoverInstalled([{ name: "codex", root }])).skills;
     const ids = result.map((s) => `${s.plugin}:${s.skill}`).sort();
     assert.deepEqual(ids, ["plugin-z:helper", "plugin-z:main"]);
   });
 });
 
-test("discoverInstalledSkills tags each skill with its source name", async () => {
+test("discoverInstalled tags each skill with its source name", async () => {
   await withInstalledSourceFixture(async (root) => {
     const skillFile = placeSkill(root, {
       layout: "flat",
@@ -111,7 +111,7 @@ test("discoverInstalledSkills tags each skill with its source name", async () =>
       plugin: "p",
       skill: "s",
     });
-    const [skill] = await discoverInstalledSkills([{ name: "claude", root }]);
+    const [skill] = (await discoverInstalled([{ name: "claude", root }])).skills;
     assert.ok(skill);
     assert.equal(skill.source, "claude");
     assert.equal(skill.plugin, "p");
@@ -120,21 +120,21 @@ test("discoverInstalledSkills tags each skill with its source name", async () =>
   });
 });
 
-test("discoverInstalledSkills returns empty when source root does not exist (e.g. user has no codex install)", async () => {
-  const result = await discoverInstalledSkills([
-    { name: "codex", root: "/this/path/definitely/does/not/exist" },
-  ]);
+test("discoverInstalled returns empty when source root does not exist (e.g. user has no codex install)", async () => {
+  const result = (
+    await discoverInstalled([{ name: "codex", root: "/this/path/definitely/does/not/exist" }])
+  ).skills;
   assert.deepEqual(result, []);
 });
 
-test("discoverInstalledSkills returns empty when source root exists but has no skills", async () => {
+test("discoverInstalled returns empty when source root exists but has no skills", async () => {
   await withInstalledSourceFixture(async (root) => {
-    const result = await discoverInstalledSkills([{ name: "claude", root }]);
+    const result = (await discoverInstalled([{ name: "claude", root }])).skills;
     assert.deepEqual(result, []);
   });
 });
 
-test("discoverInstalledSkills aggregates skills across multiple sources", async () => {
+test("discoverInstalled aggregates skills across multiple sources", async () => {
   await withInstalledSourceFixture(async (claudeRoot) => {
     await withInstalledSourceFixture(async (codexRoot) => {
       placeSkill(claudeRoot, { layout: "flat", marketplace: "m", plugin: "shared", skill: "main" });
@@ -152,10 +152,12 @@ test("discoverInstalledSkills aggregates skills across multiple sources", async 
         version: "1.0.0",
         skill: "exclusive",
       });
-      const result = await discoverInstalledSkills([
-        { name: "claude", root: claudeRoot },
-        { name: "codex", root: codexRoot },
-      ]);
+      const result = (
+        await discoverInstalled([
+          { name: "claude", root: claudeRoot },
+          { name: "codex", root: codexRoot },
+        ])
+      ).skills;
       const ids = result.map((s) => `${s.source}/${s.plugin}:${s.skill}`).sort();
       assert.deepEqual(ids, [
         "claude/shared:main",
@@ -166,17 +168,17 @@ test("discoverInstalledSkills aggregates skills across multiple sources", async 
   });
 });
 
-test("discoverInstalledSkills skips symlinked directories to avoid loops", async () => {
+test("discoverInstalled skips symlinked directories to avoid loops", async () => {
   await withInstalledSourceFixture(async (root) => {
     placeSkill(root, { layout: "flat", marketplace: "m", plugin: "p", skill: "real" });
     symlinkSync(join(root, "m"), join(root, "loop"));
-    const result = await discoverInstalledSkills([{ name: "claude", root }]);
+    const result = (await discoverInstalled([{ name: "claude", root }])).skills;
     const ids = result.map((s) => `${s.plugin}:${s.skill}`);
     assert.deepEqual(ids, ["p:real"]);
   });
 });
 
-test("indexSkills groups installed skills by <plugin>:<skill> id", async () => {
+test("indexInstalled groups installed skills by <plugin>:<skill> id", async () => {
   await withInstalledSourceFixture(async (root) => {
     placeSkill(root, {
       layout: "flat",
@@ -190,8 +192,8 @@ test("indexSkills groups installed skills by <plugin>:<skill> id", async () => {
       plugin: "plugin-x",
       skill: "skill-1",
     });
-    const skills = await discoverInstalledSkills([{ name: "claude", root }]);
-    const index = indexSkills(skills);
+    const artifacts = await discoverInstalled([{ name: "claude", root }]);
+    const index = indexInstalled(artifacts).skills;
     assert.equal(index.get("plugin-x:skill-1")?.length, 2);
     assert.equal(index.has("plugin-x:other"), false);
   });

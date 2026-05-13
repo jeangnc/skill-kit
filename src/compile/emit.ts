@@ -15,16 +15,13 @@ import { expandIncludes, formatIncludeError } from "../skill/includes.js";
 import { parsePlaceholders, substitute, type ValidatorRegistry } from "../placeholders/index.js";
 
 import { pathExists, throwInvariantViolations } from "./discovery.js";
+import type { LocalIds } from "../layout/index.js";
 
 const COMPANIONS_PREFIX = "companions";
 const SKILL_SOURCE_FILENAMES: ReadonlySet<string> = new Set(["SKILL.ts", "SKILL.md"]);
 const EXT_ID_PATTERN = /^[a-z0-9-]+:[a-z0-9-]+$/;
 
-export interface LocalIds {
-  readonly skills: ReadonlySet<string>;
-  readonly commands: ReadonlySet<string>;
-  readonly agents: ReadonlySet<string>;
-}
+export type { LocalIds } from "../layout/index.js";
 
 export interface OwningPlugin {
   readonly name: string;

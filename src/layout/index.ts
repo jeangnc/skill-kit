@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -179,4 +179,56 @@ export async function loadLayout(srcRoot: string): Promise<Result<LayoutAdapter,
   }
 
   return ok({ srcRoot, marketplace, plugins, opaquePlugins });
+}
+
+export interface LocalIds {
+  readonly skills: ReadonlySet<string>;
+  readonly commands: ReadonlySet<string>;
+  readonly agents: ReadonlySet<string>;
+}
+
+export async function collectLocalIds(adapter: LayoutAdapter): Promise<LocalIds> {
+  const skills = new Set<string>();
+  const commands = new Set<string>();
+  const agents = new Set<string>();
+  for (const plugin of adapter.plugins) {
+    for (const name of await listSkillNames(plugin.skillsDir)) {
+      skills.add(`${plugin.name}:${name}`);
+    }
+    for (const name of await listMarkdownNames(plugin.commandsDir)) {
+      commands.add(`${plugin.name}:${name}`);
+    }
+    for (const name of await listMarkdownNames(plugin.agentsDir)) {
+      agents.add(`${plugin.name}:${name}`);
+    }
+  }
+  return { skills, commands, agents };
+}
+
+async function listSkillNames(dir: string): Promise<readonly string[]> {
+  if (!(await pathExists(dir))) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const out: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillDir = join(dir, entry.name);
+    const [hasTs, hasMd] = await Promise.all([
+      pathExists(join(skillDir, "SKILL.ts")),
+      pathExists(join(skillDir, "SKILL.md")),
+    ]);
+    if (hasTs || hasMd) out.push(entry.name);
+  }
+  return out;
+}
+
+async function listMarkdownNames(dir: string): Promise<readonly string[]> {
+  if (!(await pathExists(dir))) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const out: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".md")) continue;
+    out.push(entry.name.slice(0, -3));
+  }
+  return out;
 }

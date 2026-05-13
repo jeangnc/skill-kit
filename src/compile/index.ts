@@ -1,9 +1,15 @@
-import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { compileTree, type BodyInvariant, type LocalIds, type OwningPlugin } from "./emit.js";
+import { compileTree, type BodyInvariant, type OwningPlugin } from "./emit.js";
 import { pathExists, throwInvariantViolations } from "./discovery.js";
-import { loadLayout, type LayoutAdapter, type ResolvedPlugin } from "../layout/index.js";
+import {
+  collectLocalIds,
+  loadLayout,
+  type LayoutAdapter,
+  type LocalIds,
+  type ResolvedPlugin,
+} from "../layout/index.js";
 import type { HookRequirement, Plugin } from "../plugin/index.js";
 
 export type { BodyInvariant } from "./emit.js";
@@ -53,46 +59,6 @@ async function loadAdapter(srcRoot: string): Promise<LayoutAdapter> {
         `name "${error.manifestName}" does not match folder "${error.entryName}"`,
       ]);
   }
-}
-
-async function collectLocalIds(adapter: LayoutAdapter): Promise<LocalIds> {
-  const skills = new Set<string>();
-  const commands = new Set<string>();
-  const agents = new Set<string>();
-  for (const plugin of adapter.plugins) {
-    for (const name of await listSkills(plugin.skillsDir)) skills.add(`${plugin.name}:${name}`);
-    for (const name of await listFlat(plugin.commandsDir)) commands.add(`${plugin.name}:${name}`);
-    for (const name of await listFlat(plugin.agentsDir)) agents.add(`${plugin.name}:${name}`);
-  }
-  return { skills, commands, agents };
-}
-
-async function listSkills(dir: string): Promise<readonly string[]> {
-  if (!(await pathExists(dir))) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  const out: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillDir = join(dir, entry.name);
-    const [hasTs, hasMd] = await Promise.all([
-      pathExists(join(skillDir, "SKILL.ts")),
-      pathExists(join(skillDir, "SKILL.md")),
-    ]);
-    if (hasTs || hasMd) out.push(entry.name);
-  }
-  return out;
-}
-
-async function listFlat(dir: string): Promise<readonly string[]> {
-  if (!(await pathExists(dir))) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  const out: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (!entry.name.endsWith(".md")) continue;
-    out.push(entry.name.slice(0, -3));
-  }
-  return out;
 }
 
 async function copyMarketplaceManifest(srcRoot: string, outRoot: string): Promise<void> {

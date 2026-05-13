@@ -6,7 +6,7 @@ You write plugins once, in a shape that round-trips through the upstream Claude 
 
 ## Requirements
 
-- Node ≥ 20
+- Node ≥ 24
 - A package manager (pnpm, npm, yarn — pnpm is what this repo uses)
 - The `claude` and/or `codex` CLIs on `$PATH` — only needed to run `harness-kit install` / `uninstall`
 
@@ -18,24 +18,26 @@ pnpm add @jean.gnc/harness-kit
 
 ## Source layout
 
-A harness is a marketplace of plugins. Each plugin can carry skills, agents, commands, hooks, and MCP servers. Manifests are co-located per vendor so the same source compiles to both targets:
+A harness is a marketplace of plugins. Each plugin can carry skills, agents, commands, and hooks — plus any upstream-schema fields (MCP servers, etc.) the plugin manifest passes through. Manifests are co-located per vendor so the same source compiles to both targets:
 
 ```
 src/
   .claude-plugin/
-    marketplace.json             # marketplace metadata, read by `install`
+    marketplace.json                 # marketplace metadata, read by `install`
   plugins/
     <plugin>/
-      .claude-plugin/plugin.json # claude target manifest
-      .codex-plugin/plugin.json  # codex target manifest (optional)
-      skills/
-        <skill>/
-          SKILL.md
-          <companion>.md         # optional
-      agents/    <agent>.md       # optional
-      commands/  <command>.md     # optional
-      hooks/     <hook>.json      # optional
+      .claude-plugin/plugin.json     # claude target manifest
+      .codex-plugin/plugin.json      # codex target manifest (optional)
+      skills/<skill>/SKILL.md
+      skills/<skill>/<companion>.md  # optional
+      agents/<agent>.md              # optional
+      commands/<command>.md          # optional
+      hooks/<hook>.json              # optional
 ```
+
+The marketplace manifest enumerates its plugins under `plugins[]` with a `source: { kind: "relative", path: "..." }` for each; folders not listed there are ignored. Set `metadata.pluginRoot` on the marketplace to rebase that lookup (e.g. `plugins/` lives next to a `packages/` tree).
+
+Plugin manifests can also declare `context: [{ file }]` (files copied into the compiled plugin) and `hookRequires: [{ event, skill|command|agent }]` (hook requirements validated against discovered local IDs at build time).
 
 The marketplace and plugin manifests accept the full upstream Claude Code shape — `homepage`, `repository`, `allowCrossMarketplaceDependenciesOn`, object-form dependencies (`{ name, marketplace }`), and any other documented fields pass through unchanged. Existing Claude marketplaces drop in without rewriting their manifests.
 
@@ -164,7 +166,6 @@ import {
   uninstall,
   compile,
   defineSkill,
-  definePlugin,
   parsePlaceholders,
   substitute,
   checkCompanionFiles,

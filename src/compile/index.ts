@@ -11,7 +11,7 @@ import {
   type LocalIds,
   type ResolvedPlugin,
 } from "../layout/index.js";
-import type { HookRequirement, Plugin } from "../plugin/index.js";
+import type { DependencyEntry, HookRequirement, Plugin } from "../plugin/index.js";
 
 export type { BodyInvariant } from "./emit.js";
 
@@ -80,7 +80,7 @@ async function emitPlugin(
   const contextFiles = pluginContextFiles(plugin);
   const owner: OwningPlugin = {
     name: plugin.name,
-    dependencies: new Set(plugin.manifest.dependencies ?? []),
+    dependencies: new Set((plugin.manifest.dependencies ?? []).map(dependencyName)),
   };
   await compileTree({
     srcRoot: plugin.pluginDir,
@@ -138,6 +138,10 @@ function checkHookRequires(adapter: LayoutAdapter, localIds: LocalIds): void {
       throwInvariantViolations(join(plugin.pluginDir, "PLUGIN.ts"), errors);
     }
   }
+}
+
+function dependencyName(entry: DependencyEntry): string {
+  return typeof entry === "string" ? entry : entry.name;
 }
 
 function hookRequireViolation(req: HookRequirement, localIds: LocalIds): string | null {

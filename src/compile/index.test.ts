@@ -15,7 +15,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { compile } from "./index.js";
-import type { Plugin } from "../plugin/index.js";
 
 const fixturesRoot = fileURLToPath(new URL("./__fixtures__", import.meta.url));
 const goodRoot = join(fixturesRoot, "good");
@@ -425,13 +424,13 @@ test("compile emits plugin.json from PLUGIN.ts with legacy keys preserved", asyn
     const manifestPath = join(dist, "plugins/foo/.claude-plugin/plugin.json");
     assert.ok(existsSync(manifestPath), `expected ${manifestPath} to exist`);
 
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Omit<Plugin, "context">;
-    assert.equal(manifest.name, "foo");
-    assert.equal(manifest.version, "1.2.3");
-    assert.equal(manifest.description, "demo plugin used by withPlugin fixture");
-    assert.equal(manifest.license, "MIT");
-    assert.deepEqual(manifest.keywords, ["claude", "demo"]);
-    assert.deepEqual(manifest.dependencies, ["bar-core"]);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    assert.equal(manifest["name"], "foo");
+    assert.equal(manifest["version"], "1.2.3");
+    assert.equal(manifest["description"], "demo plugin used by withPlugin fixture");
+    assert.equal(manifest["license"], "MIT");
+    assert.deepEqual(manifest["keywords"], ["claude", "demo"]);
+    assert.deepEqual(manifest["dependencies"], ["bar-core"]);
   });
 });
 
@@ -1360,4 +1359,122 @@ export default defineSkill({ name: "bar", description: "demo" });
       assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
     },
   );
+});
+
+async function withRawPluginJson<T>(
+  manifest: Record<string, unknown>,
+  fn: (srcRoot: string, distRoot: string) => Promise<T>,
+): Promise<T> {
+  const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_"));
+  const srcRoot = join(sandbox, "src");
+  const distRoot = mkdtempSync(join(tmpdir(), "harness-kit-dist-"));
+  const pluginName = manifest["name"] as string;
+  const pluginDir = join(srcRoot, "plugins", pluginName);
+  mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(pluginDir, ".claude-plugin/plugin.json"),
+    JSON.stringify(manifest, null, 2) + "\n",
+  );
+  mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(srcRoot, ".claude-plugin/marketplace.json"),
+    JSON.stringify(
+      {
+        name: "test-marketplace",
+        owner: { name: "harness-kit-tests" },
+        plugins: [{ name: pluginName, source: `./plugins/${pluginName}` }],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  return fn(srcRoot, distRoot).finally(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+    rmSync(distRoot, { recursive: true, force: true });
+  });
+}
+
+test("compile preserves upstream passthrough keys in emitted plugin.json", async () => {
+  await withRawPluginJson(
+    {
+      name: "foo",
+      version: "1.0.0",
+      description: "demo",
+      category: "development",
+      tags: ["ai", "tools"],
+      mcpServers: { example: { command: "node", args: ["server.js"] } },
+    },
+    async (srcRoot, distRoot) => {
+      await compile({ srcRoot, outRoot: distRoot });
+      const emitted = JSON.parse(
+        readFileSync(join(distRoot, "plugins/foo/.claude-plugin/plugin.json"), "utf8"),
+      ) as Record<string, unknown>;
+      assert.equal(emitted["category"], "development");
+      assert.deepEqual(emitted["tags"], ["ai", "tools"]);
+      assert.ok(emitted["mcpServers"]);
+    },
+  );
+});
+
+test("compile accepts object-form dependencies and enforces cross-plugin invariant by name", async () => {
+  const sandbox = mkdtempSync(join(fixturesRoot, "_tmp_"));
+  const srcRoot = join(sandbox, "src");
+  const distRoot = mkdtempSync(join(tmpdir(), "harness-kit-dist-"));
+  try {
+    const fooDir = join(srcRoot, "plugins/foo");
+    mkdirSync(join(fooDir, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(fooDir, ".claude-plugin/plugin.json"),
+      JSON.stringify(
+        {
+          name: "foo",
+          version: "1.0.0",
+          description: "demo",
+          dependencies: [{ name: "other", marketplace: "claude-plugins-official" }],
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    const skillDir = join(fooDir, "skills/bar");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.ts"),
+      `import { defineSkill } from "#harness-kit";
+export default defineSkill({ name: "bar", description: "demo" });
+`,
+    );
+    writeFileSync(join(skillDir, "body.md"), "see {{skill:other:tdd}}\n");
+
+    const otherDir = join(srcRoot, "plugins/other");
+    mkdirSync(join(otherDir, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(otherDir, ".claude-plugin/plugin.json"),
+      JSON.stringify({ name: "other", version: "1.0.0", description: "demo" }, null, 2) + "\n",
+    );
+    makeStubSkill(srcRoot, "other", "tdd");
+
+    mkdirSync(join(srcRoot, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+      join(srcRoot, ".claude-plugin/marketplace.json"),
+      JSON.stringify(
+        {
+          name: "test-marketplace",
+          owner: { name: "harness-kit-tests" },
+          plugins: [
+            { name: "foo", source: "./plugins/foo" },
+            { name: "other", source: "./plugins/other" },
+          ],
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    await compile({ srcRoot, outRoot: distRoot });
+    assert.ok(existsSync(join(distRoot, "plugins/foo/skills/bar/SKILL.md")));
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+    rmSync(distRoot, { recursive: true, force: true });
+  }
 });

@@ -145,7 +145,8 @@ const main = defineCommand({
   meta: {
     name: "harness-kit",
     version: pkg.version,
-    description: "Typed framework for authoring Claude Code skills.",
+    description:
+      "Build your own multi-agent harness: author plugins once, ship to Claude Code and Codex.",
   },
   subCommands: {
     build: buildCmd,

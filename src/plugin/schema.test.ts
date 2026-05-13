@@ -113,16 +113,6 @@ test("definePlugin throws on invalid input", () => {
   );
 });
 
-test("PluginSchema rejects unknown top-level fields", () => {
-  const result = PluginSchema.safeParse({
-    name: "foo",
-    version: "1.0.0",
-    description: "demo",
-    bogus: true,
-  });
-  assert.equal(result.success, false);
-});
-
 test("PluginSchema accepts commands/agents/hooks path overrides", () => {
   const result = PluginSchema.safeParse({
     name: "foo",
@@ -189,4 +179,38 @@ test("PluginSchema accepts hooks as a bare path-override string", () => {
     hooks: "wiring/hooks",
   });
   assert.equal(result.success, true);
+});
+
+test("PluginSchema accepts object-form dependencies with marketplace and version", () => {
+  const result = PluginSchema.safeParse({
+    name: "gq-core",
+    version: "1.3.5",
+    description: "demo",
+    dependencies: [
+      { name: "slack", marketplace: "claude-plugins-official" },
+      { name: "other", version: "^2.0.0" },
+      "legacy-string-dep",
+    ],
+  });
+  assert.equal(result.success, true);
+  if (!result.success) return;
+  const deps = result.data.dependencies;
+  assert.ok(Array.isArray(deps));
+  assert.equal(deps?.length, 3);
+});
+
+test("PluginSchema preserves upstream passthrough fields on parse", () => {
+  const result = PluginSchema.safeParse({
+    name: "foo",
+    version: "1.0.0",
+    description: "demo",
+    category: "development",
+    tags: ["ai", "tools"],
+    mcpServers: { example: { command: "node", args: ["server.js"] } },
+  });
+  assert.equal(result.success, true);
+  if (!result.success) return;
+  assert.equal((result.data as { category?: string }).category, "development");
+  assert.deepEqual((result.data as { tags?: string[] }).tags, ["ai", "tools"]);
+  assert.ok((result.data as { mcpServers?: unknown }).mcpServers);
 });

@@ -12,11 +12,26 @@ export const ContextEntrySchema = z.object({
 
 export type ContextEntry = z.infer<typeof ContextEntrySchema>;
 
-const AuthorSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().min(1).optional(),
-  url: z.string().min(1).optional(),
-});
+const AuthorSchema = z
+  .object({
+    name: z.string().min(1),
+    email: z.string().min(1).optional(),
+    url: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+const DependencyEntrySchema = z.union([
+  z.string().min(1),
+  z
+    .object({
+      name: z.string().min(1),
+      version: z.string().min(1).optional(),
+      marketplace: z.string().min(1).optional(),
+    })
+    .passthrough(),
+]);
+
+export type DependencyEntry = z.infer<typeof DependencyEntrySchema>;
 
 const contextListSchema = z
   .array(ContextEntrySchema)
@@ -62,14 +77,14 @@ export const PluginSchema = z
     repository: z.string().min(1).optional(),
     license: z.string().min(1).optional(),
     keywords: z.array(z.string().min(1)).optional(),
-    dependencies: z.array(z.string().min(1)).optional(),
+    dependencies: z.array(DependencyEntrySchema).optional(),
     context: contextListSchema,
     commands: z.string().min(1).optional(),
     agents: z.string().min(1).optional(),
     hooks: z.string().min(1).optional(),
     hookRequires: z.array(HookRequirementSchema).optional(),
   })
-  .strict();
+  .passthrough();
 
 export type Plugin = z.infer<typeof PluginSchema>;
 

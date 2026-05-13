@@ -6,15 +6,16 @@ const OwnerSchema = z
   .object({
     name: z.string().min(1),
     email: z.string().min(1).optional(),
+    url: z.string().min(1).optional(),
   })
-  .strict();
+  .passthrough();
 
 const MetadataSchema = z
   .object({
     pluginRoot: z.string().min(1).optional(),
     version: z.string().min(1).optional(),
   })
-  .strict();
+  .passthrough();
 
 const GithubSourceBody = z
   .object({
@@ -84,8 +85,9 @@ export const PluginEntrySchema = z
     name: z.string().min(1).regex(PLUGIN_ID, "name must be lowercase kebab-case"),
     source: SourceSchema,
     strict: z.boolean().optional(),
+    description: z.string().min(1).optional(),
   })
-  .strict();
+  .passthrough();
 
 export type PluginEntry = z.infer<typeof PluginEntrySchema>;
 export type PluginSource = PluginEntry["source"];
@@ -95,6 +97,12 @@ export const MarketplaceSchema = z
     name: z.string().min(1).regex(PLUGIN_ID, "name must be lowercase kebab-case"),
     owner: OwnerSchema,
     metadata: MetadataSchema.optional(),
+    homepage: z.string().min(1).optional(),
+    repository: z.string().min(1).optional(),
+    allowCrossMarketplaceDependenciesOn: z
+      .union([z.boolean(), z.array(z.string().min(1))])
+      .optional(),
+    $schema: z.string().min(1).optional(),
     plugins: z
       .array(PluginEntrySchema)
       .min(1)
@@ -103,7 +111,7 @@ export const MarketplaceSchema = z
         "plugin names must be unique",
       ),
   })
-  .strict();
+  .passthrough();
 
 export type Marketplace = z.infer<typeof MarketplaceSchema>;
 

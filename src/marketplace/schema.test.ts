@@ -31,16 +31,6 @@ test("MarketplaceSchema rejects non-kebab-case name", () => {
   assert.equal(result.success, false);
 });
 
-test("MarketplaceSchema rejects unknown top-level fields", () => {
-  const result = MarketplaceSchema.safeParse({
-    name: "my-marketplace",
-    owner: { name: "Jean" },
-    plugins: [{ name: "foo", source: "./plugins/foo" }],
-    extra: true,
-  });
-  assert.equal(result.success, false);
-});
-
 test("MarketplaceSchema rejects duplicate plugin names", () => {
   const result = MarketplaceSchema.safeParse({
     name: "m",
@@ -112,15 +102,6 @@ test("PluginEntrySchema rejects an unknown source discriminator", () => {
   assert.equal(result.success, false);
 });
 
-test("PluginEntrySchema rejects unknown top-level fields", () => {
-  const result = PluginEntrySchema.safeParse({
-    name: "foo",
-    source: "./plugins/foo",
-    extra: true,
-  });
-  assert.equal(result.success, false);
-});
-
 test("defineMarketplace returns the parsed manifest on valid input", () => {
   const m = defineMarketplace({
     name: "shop",
@@ -139,4 +120,43 @@ test("defineMarketplace throws on invalid input", () => {
       plugins: [{ name: "foo", source: "./plugins/foo" }],
     }),
   );
+});
+
+test("MarketplaceSchema accepts upstream Claude marketplace fields", () => {
+  const result = MarketplaceSchema.safeParse({
+    name: "gq-marketplace",
+    owner: {
+      name: "Great Question",
+      email: "eng@greatquestion.co",
+      url: "https://github.com/GreatQuestion",
+    },
+    homepage: "https://github.com/GreatQuestion/claude-marketplace",
+    repository: "https://github.com/GreatQuestion/claude-marketplace",
+    allowCrossMarketplaceDependenciesOn: ["claude-plugins-official"],
+    plugins: [{ name: "foo", source: "./plugins/foo" }],
+  });
+  assert.equal(result.success, true);
+});
+
+test("PluginEntrySchema accepts upstream description field", () => {
+  const result = PluginEntrySchema.safeParse({
+    name: "gq-core",
+    source: "./gq-core",
+    description: "Shared MCP servers and session context",
+  });
+  assert.equal(result.success, true);
+});
+
+test("MarketplaceSchema preserves upstream passthrough fields on parse", () => {
+  const result = MarketplaceSchema.safeParse({
+    name: "gq-marketplace",
+    owner: { name: "GQ", url: "https://github.com/GQ" },
+    homepage: "https://example.com",
+    plugins: [{ name: "foo", source: "./plugins/foo", description: "first" }],
+  });
+  assert.equal(result.success, true);
+  if (!result.success) return;
+  assert.equal((result.data as { homepage?: string }).homepage, "https://example.com");
+  assert.equal((result.data.owner as { url?: string }).url, "https://github.com/GQ");
+  assert.equal((result.data.plugins[0] as { description?: string }).description, "first");
 });

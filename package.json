@@ -30,7 +30,7 @@
     }
   },
   "bin": {
-    "harness-kit": "./dist/cli.js"
+    "harness-kit": "dist/cli.js"
   },
   "files": [
     "dist",
